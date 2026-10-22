@@ -2,8 +2,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useContext } from 'react';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import Login from './pages/Login';
+import Layout from './components/Layout';
+import KYCDesk from './pages/KYCDesk';
 
-// Protected Route Wrapper
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
 
@@ -15,37 +16,31 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!user) return <Navigate to="/login" replace />;
 
-  return children;
+  // Wrap the protected screen in our permanent Sidebar layout
+  return <Layout>{children}</Layout>;
 };
 
-// Temporary Dashboard Placeholder
-const DashboardTemp = () => {
-  const { user, logout } = useContext(AuthContext);
-  return (
-    <div className="p-10 text-center">
-      <h1 className="text-3xl font-bold mb-4">Welcome to the Dashboard</h1>
-      <p className="mb-4">Logged in as: <strong>{user.role_type}</strong> ({user.phone_number})</p>
-      <button onClick={logout} className="px-6 py-2 bg-brand text-white rounded-lg">Logout</button>
-    </div>
-  );
-};
+// Temporary placeholder for unbuilt screens
+const ComingSoon = ({ title }) => (
+  <div className="flex flex-col items-center justify-center h-[70vh] text-gray-400">
+    <h2 className="text-2xl font-bold text-gray-700 mb-2">{title}</h2>
+    <p>This module is under construction.</p>
+  </div>
+);
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route 
-        path="/" 
-        element={
-          <ProtectedRoute>
-            <DashboardTemp />
-          </ProtectedRoute>
-        } 
-      />
+      <Route path="/" element={<ProtectedRoute><ComingSoon title="Command Center" /></ProtectedRoute>} />
+      <Route path="/kyc" element={<ProtectedRoute><KYCDesk /></ProtectedRoute>} />
+      <Route path="/orders" element={<ProtectedRoute><ComingSoon title="Live Orders Control" /></ProtectedRoute>} />
+      <Route path="/directory" element={<ProtectedRoute><ComingSoon title="Partner Directory" /></ProtectedRoute>} />
+      <Route path="/cms" element={<ProtectedRoute><ComingSoon title="App Content & Banners" /></ProtectedRoute>} />
+      <Route path="/finance" element={<ProtectedRoute><ComingSoon title="Finance & Payouts" /></ProtectedRoute>} />
+      <Route path="/team" element={<ProtectedRoute><ComingSoon title="God-Eye Team Management" /></ProtectedRoute>} />
     </Routes>
   );
 }
