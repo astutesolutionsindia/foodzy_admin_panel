@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { Settings, Ticket, BookOpen, ShieldAlert, Loader2, Plus, Edit, Trash2, XCircle } from 'lucide-react';
+import { Settings, Ticket, BookOpen, Wallet, ShieldAlert, Loader2, Plus, Edit, Trash2, XCircle, CheckCircle } from 'lucide-react';
 import api from '../config/api';
 
 export default function Finance() {
@@ -11,6 +11,7 @@ export default function Finance() {
   const [settings, setSettings] = useState({});
   const [coupons, setCoupons] = useState([]);
   const [ledger, setLedger] = useState({ restaurantLedger: [], riderLedger: [] });
+  const [payouts, setPayouts] = useState([]);
 
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [editingCouponId, setEditingCouponId] = useState(null);
@@ -18,16 +19,19 @@ export default function Finance() {
 
   const fetchFinanceData = async () => {
     try {
-      const [settingsRes, couponsRes, ledgerRes] = await Promise.all([
+      // Allow fallback if payouts API isn't built yet
+      const [settingsRes, couponsRes, ledgerRes, payoutsRes] = await Promise.all([
         api.get('/admin/finance/settings'),
         api.get('/admin/coupons'),
-        api.get('/admin/finance/ledger')
+        api.get('/admin/finance/ledger'),
+        api.get('/admin/finance/payouts').catch(() => ({ data: [] })) 
       ]);
       setSettings(settingsRes.data);
       setCoupons(couponsRes.data);
       setLedger({ restaurantLedger: ledgerRes.data.restaurantLedger, riderLedger: ledgerRes.data.riderLedger });
+      setPayouts(payoutsRes.data);
     } catch (err) {
-      console.error("Failed to fetch finance data");
+      console.error("Failed to fetch finance data", err);
     } finally {
       setLoading(false);
     }
@@ -92,6 +96,27 @@ export default function Finance() {
     }
   };
 
+  const handleSettlePayout = async (id, partnerName, amount) => {
+    if (!window.confirm(`Did you manually transfer ₹${amount} to ${partnerName}'s bank account?\n\nClicking OK will mark this ledger debt as PAID.`)) return;
+    try {
+      await api.put(`/admin/finance/payouts/${id}/settle`);
+      fetchFinanceData();
+    } catch (err) {
+      alert("Failed to settle payout.");
+    }
+  };
+
+  const handleRejectPayout = async (id) => {
+    const reason = prompt("Enter reason for rejecting this withdrawal request:");
+    if (reason === null) return;
+    try {
+      await api.put(`/admin/finance/payouts/${id}/reject`, { reason });
+      fetchFinanceData();
+    } catch (err) {
+      alert("Failed to reject payout.");
+    }
+  };
+
   // RBAC Guard
   if (!['FINANCE_ADMIN', 'SUPER_ADMIN'].includes(user?.role_type)) {
     return (
@@ -112,7 +137,7 @@ export default function Finance() {
         <p className="text-gray-500">Manage platform taxation, commissions, coupons, and payouts.</p>
       </div>
 
-      <div className="flex space-x-2 border-b border-gray-200">
+      <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
         <button onClick={() => setActiveTab('SETTINGS')} className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'SETTINGS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}>
           <Settings className="w-4 h-4 mr-2" /> Tax & Commissions
         </button>
@@ -121,6 +146,14 @@ export default function Finance() {
         </button>
         <button onClick={() => setActiveTab('LEDGER')} className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'LEDGER' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}>
           <BookOpen className="w-4 h-4 mr-2" /> Master Ledger
+        </button>
+        <button onClick={() => setActiveTab('PAYOUTS')} className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'PAYOUTS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}>
+          <Wallet className="w-4 h-4 mr-2" /> Payout Requests
+          {payouts.filter(p => p.status === 'PENDING').length > 0 && (
+            <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              {payouts.filter(p => p.status === 'PENDING').length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -214,7 +247,7 @@ export default function Finance() {
                     <th className="p-4 font-medium">Gross Sales</th>
                     <th className="p-4 font-medium text-red-600">Platform Comm.</th>
                     <th className="p-4 font-medium text-purple-600">GST Holding</th>
-                    <th className="p-4 font-medium text-green-600">Net Payable</th>
+                    <th className="p-4 font-medium text-green-600">Active Payable Debt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -239,7 +272,7 @@ export default function Finance() {
                     <th className="p-4 font-medium">Rider Name</th>
                     <th className="p-4 font-medium">Completed Deliveries</th>
                     <th className="p-4 font-medium">Uniform Fee</th>
-                    <th className="p-4 font-medium text-green-600">Total Payout Due</th>
+                    <th className="p-4 font-medium text-green-600">Active Payable Debt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -256,6 +289,79 @@ export default function Finance() {
             </div>
           </div>
         )}
+
+        {/* PAYOUT REQUESTS TAB */}
+        {activeTab === 'PAYOUTS' && (
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 text-gray-600">
+              <tr>
+                <th className="p-4 font-medium">Date & Time</th>
+                <th className="p-4 font-medium">Partner Info</th>
+                <th className="p-4 font-medium">Amount Requested</th>
+                <th className="p-4 font-medium">Status</th>
+                <th className="p-4 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {payouts.map(p => (
+                <tr key={p.id} className="hover:bg-gray-50/50">
+                  <td className="p-4 text-xs text-gray-500">
+                    {new Date(p.created_at).toLocaleString()}
+                  </td>
+                  <td className="p-4">
+                    <div className="font-semibold text-gray-800">{p.partner_name}</div>
+                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${p.role_type === 'RIDER' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {p.role_type}
+                      </span>
+                      {p.phone_number}
+                    </div>
+                  </td>
+                  <td className="p-4 font-bold text-gray-800">
+                    ₹{p.amount}
+                  </td>
+                  <td className="p-4">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      p.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                      p.status === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {p.status}
+                    </span>
+                    {p.status === 'REJECTED' && p.transaction_note && (
+                      <div className="text-[10px] text-red-500 mt-1 max-w-[150px] truncate" title={p.transaction_note}>
+                        {p.transaction_note}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-4 text-right">
+                    {p.status === 'PENDING' && (
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => handleSettlePayout(p.id, p.partner_name, p.amount)}
+                          className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-md font-semibold text-xs cursor-pointer transition-colors"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5 mr-1" /> Paid
+                        </button>
+                        <button 
+                          onClick={() => handleRejectPayout(p.id)}
+                          className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-md font-semibold text-xs cursor-pointer transition-colors"
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {payouts.length === 0 && (
+                <tr>
+                  <td colSpan="5" className="p-8 text-center text-gray-400">No payout requests currently.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
       </div>
 
       {/* Coupon Modal */}
