@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Image, LayoutGrid, Plus, Trash2, Edit, Loader2, XCircle } from 'lucide-react';
+import { Image, LayoutGrid, Plus, Trash2, Edit, Loader2, XCircle, Upload } from 'lucide-react';
 import api from '../config/api';
 
 export default function CMS() {
@@ -42,8 +42,29 @@ export default function CMS() {
     }
   };
 
+  // Convert uploaded image to Base64 String instantly on the frontend
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert("Image must be smaller than 5MB");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, image_url: reader.result });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.image_url) {
+      alert("Please upload an image first.");
+      return;
+    }
+
     const endpoint = modalType === 'BANNER' ? '/admin/banners' : '/admin/categories';
     try {
       if (editingId) {
@@ -89,7 +110,7 @@ export default function CMS() {
           <p className="text-gray-500">Control customer app layout, banners, and categories.</p>
         </div>
         <button 
-          onClick={() => openModal(activeTab.slice(0, -1))} // Removes 'S' to get 'BANNER' or 'CATEGORY'
+          onClick={() => openModal(activeTab.slice(0, -1))} 
           className="flex items-center px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4 mr-2" /> Add {activeTab === 'BANNERS' ? 'Banner' : 'Category'}
@@ -148,6 +169,9 @@ export default function CMS() {
                   </td>
                 </tr>
               ))}
+              {banners.length === 0 && (
+                <tr><td colSpan="5" className="p-8 text-center text-gray-400">No banners created yet.</td></tr>
+              )}
             </tbody>
           </table>
         )}
@@ -185,6 +209,9 @@ export default function CMS() {
                   </td>
                 </tr>
               ))}
+              {categories.length === 0 && (
+                <tr><td colSpan="5" className="p-8 text-center text-gray-400">No categories created yet.</td></tr>
+              )}
             </tbody>
           </table>
         )}
@@ -199,16 +226,38 @@ export default function CMS() {
             </div>
             
             <form onSubmit={handleSubmit} className="space-y-4">
+              
+              {/* Custom Image Uploader */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
-                <input type="url" required value={formData.image_url} onChange={e => setFormData({...formData, image_url: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand outline-none" placeholder="https://..." />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Upload Image</label>
+                {formData.image_url ? (
+                  <div className="relative w-full h-32 border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                    <img src={formData.image_url} alt="Preview" className="w-full h-full object-contain" />
+                    <button 
+                      type="button" 
+                      onClick={() => setFormData({...formData, image_url: ''})} 
+                      className="absolute top-2 right-2 bg-white rounded-full text-red-500 hover:text-red-700 shadow-md p-1 cursor-pointer"
+                    >
+                      <XCircle className="w-5 h-5" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Upload className="w-6 h-6 text-gray-400 mb-2" />
+                      <p className="text-sm text-gray-500 font-medium">Click to upload image file</p>
+                      <p className="text-xs text-gray-400 mt-1">PNG, JPG up to 5MB</p>
+                    </div>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                  </label>
+                )}
               </div>
               
               {modalType === 'BANNER' ? (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Title (Internal)</label>
-                    <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                    <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Summer Sale" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
