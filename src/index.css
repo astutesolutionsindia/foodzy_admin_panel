@@ -1,14 +1,23 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    background-color: #f5f5f8;
-  }
+:root {
+  --brand: #ff4b3a;
+  --dark: #1e1e2d;
+  --light: #f5f5f8;
 }
 
-/* Custom Foodzy branding extensions */
-:root {
-  --color-brand: #ff4b3a;
-  --color-dark: #1e1e2d;
-  --color-light: #f5f5f8;
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--light);
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
