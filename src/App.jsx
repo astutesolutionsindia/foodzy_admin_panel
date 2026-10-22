@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Layout from './components/Layout';
 import CommandCenter from './pages/CommandCenter';
 import KYCDesk from './pages/KYCDesk';
+import LiveOrders from './pages/LiveOrders';
 import Directory from './pages/Directory';
 import CMS from './pages/CMS';
 import Finance from './pages/Finance';
@@ -41,10 +42,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<ProtectedRoute><CommandCenter /></ProtectedRoute>} />
       <Route path="/kyc" element={<ProtectedRoute><KYCDesk /></ProtectedRoute>} />
-      
-      {/* Update this import if you have a separate LiveOrders.jsx file, otherwise keep ComingSoon */}
-      <Route path="/orders" element={<ProtectedRoute><ComingSoon title="Live Orders Control" /></ProtectedRoute>} />
-      
+      <Route path="/orders" element={<ProtectedRoute><LiveOrders /></ProtectedRoute>} />
       <Route path="/directory" element={<ProtectedRoute><Directory /></ProtectedRoute>} />
       <Route path="/cms" element={<ProtectedRoute><CMS /></ProtectedRoute>} />
       <Route path="/finance" element={<ProtectedRoute><Finance /></ProtectedRoute>} />
