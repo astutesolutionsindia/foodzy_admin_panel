@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FileSearch, CheckCircle, XCircle, FileText, Loader2 } from 'lucide-react';
 import api from '../config/api';
+import { initSocket, disconnectSocket } from '../config/socket';
 
 export default function KYCDesk() {
   const [data, setData] = useState({ riders: [], restaurants: [] });
@@ -21,6 +22,12 @@ export default function KYCDesk() {
 
   useEffect(() => {
     fetchKYC();
+    
+    // Initialize socket and listen for real-time KYC uploads
+    const socket = initSocket();
+    socket.on('kycQueueUpdated', () => fetchKYC());
+    
+    return () => disconnectSocket();
   }, []);
 
   const handleDecision = async (type, id, decision) => {
@@ -46,7 +53,7 @@ export default function KYCDesk() {
     return (
       <button 
         onClick={() => setDocModal({ isOpen: true, url: base64Url, title: label })}
-        className="flex items-center text-sm text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded-md"
+        className="flex items-center text-sm text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded-md cursor-pointer"
       >
         <FileText className="w-4 h-4 mr-2" /> View {label}
       </button>
@@ -64,13 +71,13 @@ export default function KYCDesk() {
       <div className="flex space-x-4 border-b border-gray-200">
         <button 
           onClick={() => setActiveTab('RESTAURANTS')}
-          className={`pb-3 px-4 font-medium text-sm transition-colors ${activeTab === 'RESTAURANTS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'RESTAURANTS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
         >
           Restaurants ({data.restaurants.filter(r => r.status === 'PENDING_VERIFICATION').length} Pending)
         </button>
         <button 
           onClick={() => setActiveTab('RIDERS')}
-          className={`pb-3 px-4 font-medium text-sm transition-colors ${activeTab === 'RIDERS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'RIDERS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
         >
           Riders ({data.riders.filter(r => r.approval_status === 'PENDING').length} Pending)
         </button>
@@ -107,10 +114,10 @@ export default function KYCDesk() {
                   <td className="p-4 flex space-x-2">
                     {r.status === 'PENDING_VERIFICATION' && (
                       <>
-                        <button onClick={() => handleDecision('RESTAURANT', r.id, 'ACTIVE')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Approve">
+                        <button onClick={() => handleDecision('RESTAURANT', r.id, 'ACTIVE')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer" title="Approve">
                           <CheckCircle className="w-5 h-5" />
                         </button>
-                        <button onClick={() => handleDecision('RESTAURANT', r.id, 'REJECTED')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Reject">
+                        <button onClick={() => handleDecision('RESTAURANT', r.id, 'REJECTED')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer" title="Reject">
                           <XCircle className="w-5 h-5" />
                         </button>
                       </>
@@ -151,10 +158,10 @@ export default function KYCDesk() {
                   <td className="p-4 flex space-x-2">
                     {r.approval_status === 'PENDING' && (
                       <>
-                        <button onClick={() => handleDecision('RIDER', r.id, 'APPROVED')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Approve">
+                        <button onClick={() => handleDecision('RIDER', r.id, 'APPROVED')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer" title="Approve">
                           <CheckCircle className="w-5 h-5" />
                         </button>
-                        <button onClick={() => handleDecision('RIDER', r.id, 'REJECTED')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Reject">
+                        <button onClick={() => handleDecision('RIDER', r.id, 'REJECTED')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer" title="Reject">
                           <XCircle className="w-5 h-5" />
                         </button>
                       </>
@@ -173,7 +180,7 @@ export default function KYCDesk() {
           <div className="bg-white rounded-2xl max-w-3xl w-full flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b">
               <h3 className="font-semibold text-lg">{docModal.title}</h3>
-              <button onClick={() => setDocModal({ isOpen: false, url: '', title: '' })} className="text-gray-400 hover:text-gray-800">
+              <button onClick={() => setDocModal({ isOpen: false, url: '', title: '' })} className="text-gray-400 hover:text-gray-800 cursor-pointer">
                 <XCircle className="w-6 h-6" />
               </button>
             </div>

@@ -30,6 +30,9 @@ export default function CommandCenter() {
     });
     
     socket.on('orderStatusChanged', () => fetchOverview());
+    
+    // NEW: Listen for KYC uploads and refresh the dashboard counters live
+    socket.on('kycQueueUpdated', () => fetchOverview());
 
     return () => disconnectSocket();
   }, []);

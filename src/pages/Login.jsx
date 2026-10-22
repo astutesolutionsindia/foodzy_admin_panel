@@ -1,15 +1,25 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, Phone, KeyRound, Loader2 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../config/api';
 
 export default function Login() {
-  const { login } = useContext(AuthContext);
+  const { user, login } = useContext(AuthContext);
+  const navigate = useNavigate();
+  
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('+91');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate('/');
+    }
+  }, [user, navigate]);
 
   const handleSendOtp = async (e) => {
     e.preventDefault();
@@ -38,6 +48,7 @@ export default function Login() {
       const userRole = res.data.user.role_type;
       if (['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'].includes(userRole)) {
         login(res.data.token, res.data.user);
+        navigate('/'); // Instantly pushes the user to the Command Center
       } else {
         setError('Access Denied. You do not have Admin privileges.');
       }
@@ -84,7 +95,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-brand text-white py-3 rounded-xl font-semibold hover:bg-brand/90 transition-all flex items-center justify-center"
+              className="w-full bg-brand text-white py-3 rounded-xl font-semibold hover:bg-brand/90 transition-all flex items-center justify-center cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Send OTP'}
             </button>
@@ -109,14 +120,14 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-dark text-white py-3 rounded-xl font-semibold hover:bg-dark/90 transition-all flex items-center justify-center"
+              className="w-full bg-dark text-white py-3 rounded-xl font-semibold hover:bg-dark/90 transition-all flex items-center justify-center cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Secure Login'}
             </button>
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="w-full text-gray-500 text-sm hover:text-dark transition-colors"
+              className="w-full text-gray-500 text-sm hover:text-dark transition-colors cursor-pointer"
             >
               Use a different phone number
             </button>
