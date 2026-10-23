@@ -19,7 +19,6 @@ export default function Finance() {
 
   const fetchFinanceData = async () => {
     try {
-      // Allow fallback if payouts API isn't built yet
       const [settingsRes, couponsRes, ledgerRes, payoutsRes] = await Promise.all([
         api.get('/admin/finance/settings'),
         api.get('/admin/coupons'),
@@ -134,7 +133,7 @@ export default function Finance() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-gray-800">Finance Console</h2>
-        <p className="text-gray-500">Manage platform taxation, commissions, coupons, and payouts.</p>
+        <p className="text-gray-500">Manage platform taxation, dynamic rider distance pay, coupons, and payouts.</p>
       </div>
 
       <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
@@ -159,27 +158,41 @@ export default function Finance() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         
-        {/* SETTINGS TAB */}
+        {/* SETTINGS TAB (UPDATED FOR DYNAMIC DISTANCE PAY) */}
         {activeTab === 'SETTINGS' && (
           <form onSubmit={handleSettingsSave} className="p-6 max-w-3xl space-y-6">
             <h3 className="text-lg font-bold text-gray-800 border-b pb-2">Global Platform Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Default Platform Commission (%)</label>
-                <input type="number" required value={settings.default_commission_pct} onChange={e => setSettings({...settings, default_commission_pct: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                <input type="number" required value={settings.default_commission_pct || ''} onChange={e => setSettings({...settings, default_commission_pct: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
                 <p className="text-xs text-gray-500 mt-1">Can be overridden per-restaurant in directory.</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Base Delivery Fee (₹)</label>
-                <input type="number" required value={settings.base_delivery_fee} onChange={e => setSettings({...settings, base_delivery_fee: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Base Delivery Fee (Customer Pays ₹)</label>
+                <input type="number" required value={settings.base_delivery_fee || ''} onChange={e => setSettings({...settings, base_delivery_fee: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Food GST (%)</label>
-                <input type="number" required value={settings.food_gst_pct} onChange={e => setSettings({...settings, food_gst_pct: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                <input type="number" required value={settings.food_gst_pct || ''} onChange={e => setSettings({...settings, food_gst_pct: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rider Payout per Delivery (₹)</label>
-                <input type="number" required value={settings.rider_payout_per_order} onChange={e => setSettings({...settings, rider_payout_per_order: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Uniform Fee Requirement (₹)</label>
+                <input type="number" required value={settings.uniform_fee_amount || ''} onChange={e => setSettings({...settings, uniform_fee_amount: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+              </div>
+            </div>
+
+            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mt-8">Dynamic Rider Pay Configuration</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rider Base Fee (₹)</label>
+                <input type="number" required value={settings.rider_base_fee || ''} onChange={e => setSettings({...settings, rider_base_fee: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                <p className="text-xs text-gray-500 mt-1">Fixed amount granted upon successful pickup.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rider Per-Km Fee (₹/km)</label>
+                <input type="number" required value={settings.rider_per_km_fee || ''} onChange={e => setSettings({...settings, rider_per_km_fee: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" />
+                <p className="text-xs text-gray-500 mt-1">Calculated via Haversine distance between Restaurant & Customer.</p>
               </div>
             </div>
             <button type="submit" className="px-6 py-2 bg-dark text-white rounded-lg hover:bg-dark/90 font-medium cursor-pointer">Save Financial Settings</button>
@@ -361,7 +374,6 @@ export default function Finance() {
             </tbody>
           </table>
         )}
-
       </div>
 
       {/* Coupon Modal */}

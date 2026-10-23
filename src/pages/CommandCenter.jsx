@@ -1,11 +1,13 @@
 import { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket, disconnectSocket } from '../config/socket';
-import { Activity, ShoppingBag, AlertTriangle, DollarSign, Wallet } from 'lucide-react';
+import { Activity, ShoppingBag, AlertTriangle, DollarSign, Wallet, Bike } from 'lucide-react';
 import api from '../config/api';
 
 export default function CommandCenter() {
   const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [metrics, setMetrics] = useState(null);
   const [liveOrders, setLiveOrders] = useState([]);
 
@@ -30,17 +32,17 @@ export default function CommandCenter() {
     });
     
     socket.on('orderStatusChanged', () => fetchOverview());
-    
-    // NEW: Listen for KYC uploads and refresh the dashboard counters live
-    socket.on('kycQueueUpdated', () => fetchOverview());
 
     return () => disconnectSocket();
   }, []);
 
   if (!metrics) return <div className="animate-pulse p-8 font-bold text-gray-500">Loading live metrics...</div>;
 
-  const MetricCard = ({ title, value, icon: Icon, colorClass }) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center">
+  const MetricCard = ({ title, value, icon: Icon, colorClass, onClick }) => (
+    <div 
+      onClick={onClick}
+      className={`bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center ${onClick ? 'cursor-pointer hover:shadow-md hover:border-brand/30 transition-all' : ''}`}
+    >
       <div className={`p-4 rounded-xl mr-4 ${colorClass}`}>
         <Icon className="w-6 h-6" />
       </div>
@@ -58,12 +60,36 @@ export default function CommandCenter() {
         <p className="text-gray-500">Real-time platform overview</p>
       </div>
 
-      {/* Operational Metrics (All Admins) */}
+      {/* Operational Metrics - Actionable Shortcuts */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard title="Active Orders" value={metrics.operational.activeOrdersCount} icon={Activity} colorClass="bg-blue-50 text-blue-600" />
-        <MetricCard title="Stuck Orders (>10m)" value={metrics.operational.stuckOrdersCount} icon={AlertTriangle} colorClass="bg-red-50 text-red-600" />
-        <MetricCard title="Pending KYC (Rest.)" value={metrics.operational.pendingRestaurantKyc} icon={ShoppingBag} colorClass="bg-orange-50 text-orange-600" />
-        <MetricCard title="Total Customers" value={metrics.operational.totalCustomers} icon={Activity} colorClass="bg-gray-50 text-gray-600" />
+        <MetricCard 
+          title="Active Orders" 
+          value={metrics.operational.activeOrdersCount} 
+          icon={Activity} 
+          colorClass="bg-blue-50 text-blue-600" 
+          onClick={() => navigate('/orders')} 
+        />
+        <MetricCard 
+          title="Stuck Orders (>10m)" 
+          value={metrics.operational.stuckOrdersCount} 
+          icon={AlertTriangle} 
+          colorClass="bg-red-50 text-red-600" 
+          onClick={() => navigate('/orders')} 
+        />
+        <MetricCard 
+          title="Pending KYC (Rest.)" 
+          value={metrics.operational.pendingRestaurantKyc} 
+          icon={ShoppingBag} 
+          colorClass="bg-orange-50 text-orange-600" 
+          onClick={() => navigate('/kyc')} 
+        />
+        <MetricCard 
+          title="Pending KYC (Riders)" 
+          value={metrics.operational.pendingRiderKyc} 
+          icon={Bike} 
+          colorClass="bg-yellow-50 text-yellow-600" 
+          onClick={() => navigate('/kyc')} 
+        />
       </div>
 
       {/* Financial Metrics (Hidden from FIELD_ADMIN) */}
@@ -92,7 +118,11 @@ export default function CommandCenter() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {liveOrders.map((o) => (
-              <tr key={o.id} className="hover:bg-gray-50/50">
+              <tr 
+                key={o.id} 
+                onClick={() => navigate('/orders')}
+                className="hover:bg-gray-50/50 cursor-pointer transition-colors"
+              >
                 <td className="p-4 font-semibold text-gray-800">#FZ-{o.id}</td>
                 <td className="p-4">₹{o.total_amount}</td>
                 <td className="p-4">

@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Activity, MapPin, Search, Edit2, XCircle, Loader2, Bike, Store, User } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Activity, MapPin, Search, Edit2, XCircle, Loader2, Bike, Store, User, AlertTriangle } from 'lucide-react';
 import { initSocket, disconnectSocket } from '../config/socket';
 import api from '../config/api';
 
 export default function LiveOrders() {
+  const location = useLocation();
   const [orders, setOrders] = useState([]);
   const [riders, setRiders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('ACTIVE');
+  
+  // Auto-select 'STUCK' tab if routed from Command Center
+  const [activeTab, setActiveTab] = useState(location.search.includes('stuck') ? 'STUCK' : 'ACTIVE');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modal State
@@ -18,7 +22,7 @@ export default function LiveOrders() {
     try {
       const [ordersRes, ridersRes] = await Promise.all([
         api.get('/admin/orders'),
-        api.get('/admin/riders') // Needed to populate the reassignment dropdown
+        api.get('/admin/riders') 
       ]);
       setOrders(ordersRes.data);
       setRiders(ridersRes.data.filter(r => r.approval_status === 'ACTIVE' || r.approval_status === 'APPROVED'));
@@ -54,7 +58,8 @@ export default function LiveOrders() {
       const payload = {
         status: overrideForm.status,
         riderId: overrideForm.riderId === '' ? null : Number(overrideForm.riderId),
-        note: overrideForm.note
+        note: overrideForm.note,
+        forceSync: true // PHASE 2: Tells backend to rebuild the full relational object to prevent app freeze
       };
       await api.put(`/admin/orders/${selectedOrder.id}/override`, payload);
       setSelectedOrder(null);
@@ -74,6 +79,9 @@ export default function LiveOrders() {
       
     if (activeTab === 'ACTIVE') {
       return !['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(o.status) && matchesSearch;
+    } else if (activeTab === 'STUCK') {
+      const isStuck = (o.status === 'PREPARING' || o.status === 'READY') && !o.rider_id && (Date.now() - new Date(o.created_at).getTime() > 10 * 60 * 1000);
+      return isStuck && matchesSearch;
     } else {
       return ['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(o.status) && matchesSearch;
     }
@@ -113,6 +121,12 @@ export default function LiveOrders() {
           className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'ACTIVE' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
         >
           <Activity className="w-4 h-4 mr-2" /> Active Deliveries
+        </button>
+        <button 
+          onClick={() => setActiveTab('STUCK')}
+          className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'STUCK' ? 'border-b-2 border-red-500 text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          <AlertTriangle className="w-4 h-4 mr-2" /> Stuck Orders
         </button>
         <button 
           onClick={() => setActiveTab('PAST')}

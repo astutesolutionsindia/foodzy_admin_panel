@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Image, LayoutGrid, Plus, Trash2, Edit, Loader2, XCircle, Upload, MapPin, Undo2, RotateCcw, Save, Navigation, CheckCircle2 } from 'lucide-react';
+import { Image, LayoutGrid, Plus, Trash2, Edit, Loader2, XCircle, Upload, MapPin, Undo2, RotateCcw, Save, Navigation, CheckCircle2, Check } from 'lucide-react';
 import api from '../config/api';
 
 export default function CMS() {
@@ -8,22 +8,25 @@ export default function CMS() {
   const [banners, setBanners] = useState([]);
   const [categories, setCategories] = useState([]);
 
-  // Modal State for Banners & Categories
-  const [modalType, setModalType] = useState(null); // 'BANNER' | 'CATEGORY' | null
+  // Modal State
+  const [modalType, setModalType] = useState(null); 
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({});
 
-  // Geofence Polygon State
-  const [polygonPoints, setPolygonPoints] = useState([]); // Array of [lat, lng]
+  // MULTI-POLYGON GEOFENCE STATE
+  const [savedZones, setSavedZones] = useState([]); // Array of arrays of [lat, lng]
+  const [draftZone, setDraftZone] = useState([]);   // Current polygon being drawn
   const [enforceGeofence, setEnforceGeofence] = useState(false);
   const [savingGeofence, setSavingGeofence] = useState(false);
-  const [testPin, setTestPin] = useState(null); // { lat, lng, inside }
+  
+  const [testPin, setTestPin] = useState(null); 
   const [testMode, setTestMode] = useState(false);
 
   // Leaflet Map Refs
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
-  const polygonLayerRef = useRef(null);
+  const polygonLayersRef = useRef([]); // Stores references to drawn saved polygons
+  const draftLayerRef = useRef(null);
   const markersRef = useRef([]);
   const testMarkerRef = useRef(null);
   const testModeRef = useRef(false);
@@ -42,10 +45,16 @@ export default function CMS() {
       setBanners(bannersRes.data);
       setCategories(categoriesRes.data);
 
-      const savedPoly = Array.isArray(geofenceRes.data?.service_polygon)
-        ? geofenceRes.data.service_polygon
-        : [];
-      setPolygonPoints(savedPoly);
+      const rawPoly = geofenceRes.data?.service_polygon || [];
+      // Detect if backend returned a MultiPolygon format (Array of Arrays of Points) or a single legacy polygon
+      if (rawPoly.length > 0 && Array.isArray(rawPoly[0]) && Array.isArray(rawPoly[0][0])) {
+        setSavedZones(rawPoly);
+      } else if (rawPoly.length >= 3) {
+        setSavedZones([rawPoly]);
+      } else {
+        setSavedZones([]);
+      }
+      
       setEnforceGeofence(Boolean(geofenceRes.data?.enforce_geofence));
     } catch (err) {
       console.error("Failed to fetch CMS data", err);
@@ -58,7 +67,6 @@ export default function CMS() {
     fetchData();
   }, []);
 
-  // Dynamically load Leaflet CSS & JS from CDN (No npm install required)
   const ensureLeafletLoaded = () => {
     return new Promise((resolve) => {
       if (window.L) return resolve(window.L);
@@ -85,9 +93,9 @@ export default function CMS() {
     });
   };
 
-  // Client-side Ray-Casting check for instant "Test Pin" feedback on the map
-  const checkPointInside = (lat, lng, poly) => {
-    if (!Array.isArray(poly) || poly.length < 3) return true;
+  // Ray-Casting for a single polygon
+  const checkPointInsideSingle = (lat, lng, poly) => {
+    if (!Array.isArray(poly) || poly.length < 3) return false;
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       const xi = Number(poly[i][0]), yi = Number(poly[i][1]);
@@ -99,7 +107,14 @@ export default function CMS() {
     return inside;
   };
 
-  // Initialize Leaflet Map when switching to BOUNDARY tab
+  // Checks all saved zones + the draft zone
+  const checkPointInsideAll = (lat, lng, allZones) => {
+    for (const zone of allZones) {
+      if (checkPointInsideSingle(lat, lng, zone)) return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     if (activeTab !== 'BOUNDARY') return;
 
@@ -108,10 +123,11 @@ export default function CMS() {
       if (!isMounted || !mapContainerRef.current) return;
 
       if (!mapInstanceRef.current) {
-        // Default center: Doda / J&K (33.1457, 75.5480) or first saved polygon point
-        const defaultCenter = polygonPoints.length > 0
-          ? [Number(polygonPoints[0][0]), Number(polygonPoints[0][1])]
-          : [33.1457, 75.5480];
+        // Find default center from saved zones
+        let defaultCenter = [33.1457, 75.5480];
+        if (savedZones.length > 0 && savedZones[0].length > 0) {
+          defaultCenter = [Number(savedZones[0][0][0]), Number(savedZones[0][0][1])];
+        }
 
         const map = L.map(mapContainerRef.current).setView(defaultCenter, 14);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -124,13 +140,12 @@ export default function CMS() {
           const clickedLng = Number(e.latlng.lng.toFixed(6));
 
           if (testModeRef.current) {
-            setPolygonPoints((currentPoly) => {
-              const isInside = checkPointInside(clickedLat, clickedLng, currentPoly);
-              setTestPin({ lat: clickedLat, lng: clickedLng, inside: isInside });
-              return currentPoly;
+            setTestPin(prev => {
+              // Pass current state directly to avoid stale closures
+              return { lat: clickedLat, lng: clickedLng, needsCheck: true };
             });
           } else {
-            setPolygonPoints((prev) => [...prev, [clickedLat, clickedLng]]);
+            setDraftZone((prev) => [...prev, [clickedLat, clickedLng]]);
           }
         });
 
@@ -145,20 +160,31 @@ export default function CMS() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab]);
+  }, [activeTab]); // intentionally not adding savedZones here to prevent map re-instantiation
 
-  // Cleanup map instance when leaving BOUNDARY tab
+  // Handle Test Pin Execution
+  useEffect(() => {
+    if (testPin?.needsCheck) {
+      const allActivePolygons = [...savedZones];
+      if (draftZone.length >= 3) allActivePolygons.push(draftZone);
+      
+      const isInside = checkPointInsideAll(testPin.lat, testPin.lng, allActivePolygons);
+      setTestPin({ lat: testPin.lat, lng: testPin.lng, inside: isInside, needsCheck: false });
+    }
+  }, [testPin, savedZones, draftZone]);
+
   useEffect(() => {
     if (activeTab !== 'BOUNDARY' && mapInstanceRef.current) {
       mapInstanceRef.current.remove();
       mapInstanceRef.current = null;
-      polygonLayerRef.current = null;
+      polygonLayersRef.current = [];
+      draftLayerRef.current = null;
       markersRef.current = [];
       testMarkerRef.current = null;
     }
   }, [activeTab]);
 
-  // Redraw polygon & vertex markers whenever polygonPoints or testPin changes
+  // Unified Multi-Polygon Map Renderer
   useEffect(() => {
     const L = window.L;
     const map = mapInstanceRef.current;
@@ -168,14 +194,30 @@ export default function CMS() {
     markersRef.current.forEach((m) => map.removeLayer(m));
     markersRef.current = [];
 
-    // Clear old polygon
-    if (polygonLayerRef.current) {
-      map.removeLayer(polygonLayerRef.current);
-      polygonLayerRef.current = null;
+    // Clear all existing polygons
+    polygonLayersRef.current.forEach(layer => map.removeLayer(layer));
+    polygonLayersRef.current = [];
+    
+    if (draftLayerRef.current) {
+      map.removeLayer(draftLayerRef.current);
+      draftLayerRef.current = null;
     }
 
-    // Draw numbered vertex markers (draggable!)
-    polygonPoints.forEach((pt, idx) => {
+    // 1. Draw Completed (Saved) Zones in Blue
+    savedZones.forEach((zone) => {
+      if (zone.length >= 3) {
+        const poly = L.polygon(zone, {
+          color: '#3b82f6', // blue-500
+          fillColor: '#60a5fa',
+          fillOpacity: 0.25,
+          weight: 2
+        }).addTo(map);
+        polygonLayersRef.current.push(poly);
+      }
+    });
+
+    // 2. Draw Active Draft Zone Markers (Draggable)
+    draftZone.forEach((pt, idx) => {
       const icon = L.divIcon({
         className: 'custom-vertex-pin',
         html: `<div style="background:#ef4444;color:white;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);">${idx + 1}</div>`,
@@ -186,7 +228,7 @@ export default function CMS() {
       const marker = L.marker([pt[0], pt[1]], { icon, draggable: true }).addTo(map);
       marker.on('dragend', (ev) => {
         const pos = ev.target.getLatLng();
-        setPolygonPoints((prev) => {
+        setDraftZone((prev) => {
           const updated = [...prev];
           updated[idx] = [Number(pos.lat.toFixed(6)), Number(pos.lng.toFixed(6))];
           return updated;
@@ -195,39 +237,48 @@ export default function CMS() {
       markersRef.current.push(marker);
     });
 
-    // Draw shaded polygon or connecting line
-    if (polygonPoints.length >= 3) {
-      polygonLayerRef.current = L.polygon(polygonPoints, {
+    // 3. Draw Active Draft Zone Polygon in Green
+    if (draftZone.length >= 3) {
+      draftLayerRef.current = L.polygon(draftZone, {
         color: '#16a34a',
         fillColor: '#22c55e',
-        fillOpacity: 0.25,
-        weight: 3
+        fillOpacity: 0.35,
+        weight: 3,
+        dashArray: '5, 5'
       }).addTo(map);
-    } else if (polygonPoints.length === 2) {
-      polygonLayerRef.current = L.polyline(polygonPoints, {
+    } else if (draftZone.length === 2) {
+      draftLayerRef.current = L.polyline(draftZone, {
         color: '#f97316',
         weight: 3,
         dashArray: '6, 6'
       }).addTo(map);
     }
 
-    // Draw Test Pin if active
+    // 4. Draw Test Pin if active
     if (testMarkerRef.current) {
       map.removeLayer(testMarkerRef.current);
       testMarkerRef.current = null;
     }
-    if (testPin) {
-      const inside = checkPointInside(testPin.lat, testPin.lng, polygonPoints);
-      const pinColor = inside ? '#16a34a' : '#dc2626';
+    if (testPin && !testPin.needsCheck) {
+      const pinColor = testPin.inside ? '#16a34a' : '#dc2626';
       const testIcon = L.divIcon({
         className: 'test-pin-icon',
-        html: `<div style="background:${pinColor};color:white;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:bold;white-space:nowrap;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${inside ? '✓ Deliverable' : '✕ Out of Zone'}</div>`,
+        html: `<div style="background:${pinColor};color:white;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:bold;white-space:nowrap;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);">${testPin.inside ? '✓ Deliverable' : '✕ Out of Zone'}</div>`,
         iconSize: [100, 26],
         iconAnchor: [50, 13]
       });
       testMarkerRef.current = L.marker([testPin.lat, testPin.lng], { icon: testIcon }).addTo(map);
     }
-  }, [polygonPoints, testPin, activeTab]);
+  }, [draftZone, savedZones, testPin, activeTab]);
+
+  const handleFinishZone = () => {
+    if (draftZone.length < 3) {
+      alert("A zone needs at least 3 points to form a closed shape.");
+      return;
+    }
+    setSavedZones(prev => [...prev, draftZone]);
+    setDraftZone([]);
+  };
 
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
@@ -246,18 +297,28 @@ export default function CMS() {
   };
 
   const handleSaveGeofence = async () => {
-    if (enforceGeofence && polygonPoints.length < 3) {
-      alert("Please click at least 3 points on the map to form a closed service boundary before enabling enforcement.");
+    const allFinalZones = [...savedZones];
+    if (draftZone.length >= 3) {
+      allFinalZones.push(draftZone);
+    }
+
+    if (enforceGeofence && allFinalZones.length === 0) {
+      alert("Please draw at least one completely closed polygon before enabling enforcement.");
       return;
     }
 
     setSavingGeofence(true);
     try {
       await api.put('/admin/geofence', {
-        service_polygon: polygonPoints,
+        service_polygon: allFinalZones, // Backend will now accept and store this as an array of arrays
         enforce_geofence: enforceGeofence
       });
-      alert("Service boundary saved and updated live across all apps!");
+      // Set the draft as a saved zone locally so the UI updates
+      if (draftZone.length >= 3) {
+        setSavedZones(allFinalZones);
+        setDraftZone([]);
+      }
+      alert("Multi-polygon service boundaries saved and updated live across all apps!");
     } catch (err) {
       alert(err.response?.data?.error || "Failed to save service boundary.");
     } finally {
@@ -269,13 +330,32 @@ export default function CMS() {
     setModalType(type);
     setEditingId(item?.id || null);
     if (type === 'BANNER') {
-      setFormData(item || { title: '', image_url: '', redirect_type: 'NONE', redirect_value: '', sort_order: 0, is_active: true });
+      let popupData = { popupTitle: '', popupDescription: '', popupImageUrl: '' };
+      if (item?.redirect_type === 'BOTTOM_SHEET_POPUP' && item?.redirect_value) {
+        try {
+          popupData = JSON.parse(item.redirect_value);
+        } catch (e) {
+          console.error("Failed to parse popup JSON");
+        }
+      }
+      setFormData(item || { title: '', image_url: '', redirect_type: 'NONE', redirect_value: '', sort_order: 0, is_active: true, ...popupData });
     } else {
       setFormData(item || { name: '', search_query: '', image_url: '', sort_order: 0, is_active: true });
     }
   };
 
-  // Convert uploaded image to Base64 String instantly on the frontend
+  const handlePopupUpdate = (field, value) => {
+    const newForm = { ...formData, [field]: value };
+    if (newForm.redirect_type === 'BOTTOM_SHEET_POPUP') {
+      newForm.redirect_value = JSON.stringify({
+        popupTitle: newForm.popupTitle || '',
+        popupDescription: newForm.popupDescription || '',
+        popupImageUrl: newForm.popupImageUrl || ''
+      });
+    }
+    setFormData(newForm);
+  };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -340,7 +420,7 @@ export default function CMS() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">App CMS & Geofence Manager</h2>
-          <p className="text-gray-500">Control customer app banners, categories, and your exact delivery zone boundary.</p>
+          <p className="text-gray-500">Control customer app banners, categories, and your exact multi-zone delivery boundaries.</p>
         </div>
         {activeTab !== 'BOUNDARY' && (
           <button 
@@ -400,7 +480,11 @@ export default function CMS() {
                   </td>
                   <td className="p-4">
                     <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono text-gray-600">{b.redirect_type}</span>
-                    {b.redirect_value && <div className="text-xs text-blue-500 mt-1">{b.redirect_value}</div>}
+                    {b.redirect_type === 'BOTTOM_SHEET_POPUP' ? (
+                       <div className="text-xs text-green-600 mt-1 font-medium">Interactive App Popup</div>
+                    ) : (
+                       b.redirect_value && <div className="text-xs text-blue-500 mt-1">{b.redirect_value}</div>
+                    )}
                   </td>
                   <td className="p-4 text-center">
                     <button onClick={() => toggleStatus('BANNER', b)} className={`px-3 py-1 rounded-full text-xs font-semibold cursor-pointer ${b.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -460,17 +544,17 @@ export default function CMS() {
           </table>
         )}
 
-        {/* INTERACTIVE SERVICE BOUNDARY (POLYGON GEOFENCE) TAB */}
+        {/* MULTI-POLYGON GEOFENCE TAB */}
         {activeTab === 'BOUNDARY' && (
           <div className="p-6 space-y-5">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
               <div>
                 <h3 className="font-bold text-gray-800 text-base flex items-center gap-2">
                   <MapPin className="w-5 h-5 text-brand" />
-                  Draw Your Delivery Zone Polygon ({polygonPoints.length} Points)
+                  Delivery Zones ({savedZones.length + (draftZone.length >= 3 ? 1 : 0)} Active)
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">
-                  Click anywhere on the map to drop boundary pins around your town. Drag numbered pins to fine-tune roads. Orders outside the green shaded zone will be blocked when enforcement is enabled.
+                  Draw independent polygons around specific towns or sectors. Finish one zone, then click the map to start another.
                 </p>
               </div>
 
@@ -505,32 +589,43 @@ export default function CMS() {
                   type="button"
                   onClick={handleLocateMe}
                   className="flex items-center px-3 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-xs font-semibold cursor-pointer"
-                  title="Center map on my GPS location"
                 >
                   <Navigation className="w-4 h-4 mr-1.5" /> Center on Me
                 </button>
 
-                <button
-                  type="button"
-                  disabled={polygonPoints.length === 0}
-                  onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))}
-                  className="flex items-center px-3 py-2 bg-white hover:bg-gray-100 disabled:opacity-40 text-gray-700 border border-gray-200 rounded-lg text-xs font-semibold cursor-pointer"
-                >
-                  <Undo2 className="w-4 h-4 mr-1.5" /> Undo Last Point
-                </button>
+                {draftZone.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDraftZone((prev) => prev.slice(0, -1))}
+                    className="flex items-center px-3 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-xs font-semibold cursor-pointer"
+                  >
+                    <Undo2 className="w-4 h-4 mr-1.5" /> Undo Point
+                  </button>
+                )}
+
+                {draftZone.length >= 3 && (
+                  <button
+                    type="button"
+                    onClick={handleFinishZone}
+                    className="flex items-center px-3 py-2 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded-lg text-xs font-bold cursor-pointer"
+                  >
+                    <Check className="w-4 h-4 mr-1.5" /> Finish Current Zone
+                  </button>
+                )}
 
                 <button
                   type="button"
-                  disabled={polygonPoints.length === 0}
+                  disabled={savedZones.length === 0 && draftZone.length === 0}
                   onClick={() => {
-                    if (window.confirm('Clear all boundary points from the map?')) {
-                      setPolygonPoints([]);
+                    if (window.confirm('Wipe ALL polygons from the map?')) {
+                      setSavedZones([]);
+                      setDraftZone([]);
                       setTestPin(null);
                     }
                   }}
                   className="flex items-center px-3 py-2 bg-red-50 hover:bg-red-100 disabled:opacity-40 text-red-600 border border-red-200 rounded-lg text-xs font-semibold cursor-pointer"
                 >
-                  <RotateCcw className="w-4 h-4 mr-1.5" /> Clear All
+                  <RotateCcw className="w-4 h-4 mr-1.5" /> Clear Map
                 </button>
 
                 <button
@@ -540,7 +635,7 @@ export default function CMS() {
                   className="flex items-center px-4 py-2 bg-brand hover:bg-brand/90 text-white rounded-lg text-xs font-bold cursor-pointer shadow-xs"
                 >
                   <Save className="w-4 h-4 mr-1.5" />
-                  {savingGeofence ? 'Saving...' : 'Save Service Boundary'}
+                  {savingGeofence ? 'Saving...' : 'Save All Zones'}
                 </button>
               </div>
             </div>
@@ -554,21 +649,17 @@ export default function CMS() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-gray-500 bg-gray-50 px-4 py-3 rounded-lg border border-gray-100 gap-2">
               <div>
                 <span className="font-semibold text-gray-700">Status: </span>
-                {polygonPoints.length < 3 ? (
-                  <span className="text-orange-600 font-medium">
-                    Need at least {3 - polygonPoints.length} more point(s) to close the polygon.
-                  </span>
-                ) : enforceGeofence ? (
+                {enforceGeofence ? (
                   <span className="text-green-600 font-semibold">
-                    Geofence ACTIVE — Customers outside the {polygonPoints.length}-point polygon cannot place orders.
+                    Geofence ACTIVE — Orders blocked if placed outside the {savedZones.length + (draftZone.length >= 3 ? 1 : 0)} defined zones.
                   </span>
                 ) : (
                   <span className="text-gray-600">
-                    Polygon drawn ({polygonPoints.length} points), but "Enforce Boundary" is currently unchecked.
+                    Geofence is currently turned off.
                   </span>
                 )}
               </div>
-              {testPin && (
+              {testPin && !testPin.needsCheck && (
                 <div className={`font-semibold ${testPin.inside ? 'text-green-600' : 'text-red-600'}`}>
                   Test Pin ({testPin.lat}, {testPin.lng}): {testPin.inside ? 'INSIDE SERVICE AREA ✓' : 'OUTSIDE SERVICE AREA ✕'}
                 </div>
@@ -580,7 +671,7 @@ export default function CMS() {
 
       {modalType && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-xl text-gray-800">{editingId ? 'Edit' : 'Add'} {modalType === 'BANNER' ? 'Banner' : 'Category'}</h3>
               <button onClick={() => setModalType(null)} className="text-gray-400 hover:text-gray-800 cursor-pointer"><XCircle className="w-6 h-6" /></button>
@@ -590,7 +681,7 @@ export default function CMS() {
               
               {/* Custom Image Uploader */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Upload Image</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Upload App Image</label>
                 {formData.image_url ? (
                   <div className="relative w-full h-32 border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-50">
                     <img src={formData.image_url} alt="Preview" className="w-full h-full object-contain" />
@@ -606,8 +697,7 @@ export default function CMS() {
                   <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                       <Upload className="w-6 h-6 text-gray-400 mb-2" />
-                      <p className="text-sm text-gray-500 font-medium">Click to upload image file</p>
-                      <p className="text-xs text-gray-400 mt-1">PNG, JPG up to 5MB</p>
+                      <p className="text-sm text-gray-500 font-medium">Click to upload image</p>
                     </div>
                     <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
                   </label>
@@ -620,21 +710,58 @@ export default function CMS() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Title (Internal)</label>
                     <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Summer Sale" />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Redirect Type</label>
-                      <select value={formData.redirect_type} onChange={e => setFormData({...formData, redirect_type: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white">
-                        <option value="NONE">None</option>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Redirect Action</label>
+                      <select 
+                        value={formData.redirect_type} 
+                        onChange={e => {
+                          const newType = e.target.value;
+                          let resetValue = '';
+                          if (newType === 'BOTTOM_SHEET_POPUP') {
+                            resetValue = JSON.stringify({ popupTitle: '', popupDescription: '', popupImageUrl: '' });
+                          }
+                          setFormData({...formData, redirect_type: newType, redirect_value: resetValue, popupTitle: '', popupDescription: '', popupImageUrl: ''});
+                        }} 
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white"
+                      >
+                        <option value="NONE">No Action</option>
                         <option value="RESTAURANT">Restaurant ID</option>
                         <option value="COUPON">Coupon Code</option>
                         <option value="SEARCH">Search Query</option>
+                        <option value="BOTTOM_SHEET_POPUP">Bottom Sheet Popup</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Target Value</label>
-                      <input type="text" value={formData.redirect_value} onChange={e => setFormData({...formData, redirect_value: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" placeholder="e.g. SAVE50 or Burger" />
-                    </div>
+                    
+                    {formData.redirect_type !== 'NONE' && formData.redirect_type !== 'BOTTOM_SHEET_POPUP' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Target Value</label>
+                        <input type="text" required value={formData.redirect_value} onChange={e => setFormData({...formData, redirect_value: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" placeholder="e.g. SAVE50 or Burger" />
+                      </div>
+                    )}
                   </div>
+
+                  {/* BOTTOM SHEET POPUP CONFIGURATOR */}
+                  {formData.redirect_type === 'BOTTOM_SHEET_POPUP' && (
+                    <div className="p-4 bg-brand/5 border border-brand/20 rounded-xl space-y-4 mt-4">
+                      <h4 className="text-xs font-bold text-brand uppercase tracking-wider flex items-center">
+                        <LayoutGrid className="w-3 h-3 mr-1" /> Popup Layout Config
+                      </h4>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Popup Title</label>
+                        <input type="text" required value={formData.popupTitle || ''} onChange={e => handlePopupUpdate('popupTitle', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-1 focus:ring-brand" placeholder="e.g. Foodzy Wallet Live!" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Popup Description (Supports multiline)</label>
+                        <textarea required rows="3" value={formData.popupDescription || ''} onChange={e => handlePopupUpdate('popupDescription', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-1 focus:ring-brand resize-none" placeholder="Explain the rules, features, or promotional details here..." />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Internal Modal Image URL (Optional)</label>
+                        <input type="url" value={formData.popupImageUrl || ''} onChange={e => handlePopupUpdate('popupImageUrl', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-1 focus:ring-brand" placeholder="https://..." />
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -662,9 +789,9 @@ export default function CMS() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
-                <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg cursor-pointer">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 cursor-pointer font-medium">Save Item</button>
+              <div className="pt-4 border-t border-gray-100 flex justify-end gap-3 mt-4">
+                <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg cursor-pointer font-medium">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 cursor-pointer font-medium shadow-sm">Save Content</button>
               </div>
             </form>
           </div>
