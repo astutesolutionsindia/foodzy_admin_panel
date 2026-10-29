@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileSearch, CheckCircle, XCircle, FileText, Loader2 } from 'lucide-react';
+import { CheckCircle, XCircle, FileText, Loader2 } from 'lucide-react';
 import api from '../config/api';
 import { initSocket, disconnectSocket } from '../config/socket';
 
@@ -12,9 +12,9 @@ export default function KYCDesk() {
   const fetchKYC = async () => {
     try {
       const res = await api.get('/admin/kyc/pending');
-      setData(res.data);
+      setData(res.data || { riders: [], restaurants: [] });
     } catch (err) {
-      console.error("Failed to fetch KYC data");
+      console.error('Failed to fetch KYC data');
     } finally {
       setLoading(false);
     }
@@ -22,17 +22,17 @@ export default function KYCDesk() {
 
   useEffect(() => {
     fetchKYC();
-    
-    // Initialize socket and listen for real-time KYC uploads
+
     const socket = initSocket();
     socket.on('kycQueueUpdated', () => fetchKYC());
-    
+
     return () => disconnectSocket();
   }, []);
 
   const handleDecision = async (type, id, decision) => {
-    const reason = decision === 'REJECTED' ? prompt("Enter rejection reason (sent to partner):") : null;
-    if (decision === 'REJECTED' && !reason) return; // Cancelled prompt
+    const reason =
+      decision === 'REJECTED' ? prompt('Enter rejection reason (sent to partner):') : null;
+    if (decision === 'REJECTED' && !reason) return;
 
     try {
       if (type === 'RESTAURANT') {
@@ -40,18 +40,24 @@ export default function KYCDesk() {
       } else {
         await api.put(`/admin/kyc/rider/${id}`, { decision, rejectionReason: reason });
       }
-      fetchKYC(); // Refresh list
+      fetchKYC();
     } catch (err) {
-      alert("Action failed. Check console.");
+      alert('Action failed. Check console.');
     }
   };
 
-  if (loading) return <div className="flex justify-center mt-20"><Loader2 className="w-10 h-10 animate-spin text-brand" /></div>;
+  if (loading) {
+    return (
+      <div className="flex justify-center mt-20">
+        <Loader2 className="w-10 h-10 animate-spin text-brand" />
+      </div>
+    );
+  }
 
   const renderDocButton = (label, base64Url) => {
     if (!base64Url) return <span className="text-xs text-gray-400 italic">Not uploaded</span>;
     return (
-      <button 
+      <button
         onClick={() => setDocModal({ isOpen: true, url: base64Url, title: label })}
         className="flex items-center text-sm text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded-md cursor-pointer"
       >
@@ -64,22 +70,33 @@ export default function KYCDesk() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-gray-800">KYC Verification Desk</h2>
-        <p className="text-gray-500">Review and approve partner documents.</p>
+        <p className="text-gray-500">
+          Review and approve partner PDF & photo compliance documents.
+        </p>
       </div>
 
       {/* Tabs */}
       <div className="flex space-x-4 border-b border-gray-200">
-        <button 
+        <button
           onClick={() => setActiveTab('RESTAURANTS')}
-          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'RESTAURANTS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${
+            activeTab === 'RESTAURANTS'
+              ? 'border-b-2 border-brand text-brand'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
         >
-          Restaurants ({data.restaurants.filter(r => r.status === 'PENDING_VERIFICATION').length} Pending)
+          Restaurants (
+          {data.restaurants.filter((r) => r.status === 'PENDING_VERIFICATION').length} Pending)
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('RIDERS')}
-          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${activeTab === 'RIDERS' ? 'border-b-2 border-brand text-brand' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${
+            activeTab === 'RIDERS'
+              ? 'border-b-2 border-brand text-brand'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
         >
-          Riders ({data.riders.filter(r => r.approval_status === 'PENDING').length} Pending)
+          Riders ({data.riders.filter((r) => r.approval_status === 'PENDING').length} Pending)
         </button>
       </div>
 
@@ -107,17 +124,33 @@ export default function KYCDesk() {
                     {renderDocButton('Registration', r.registration_doc)}
                   </td>
                   <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${r.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : r.status === 'PENDING_VERIFICATION' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        r.status === 'ACTIVE'
+                          ? 'bg-green-100 text-green-700'
+                          : r.status === 'PENDING_VERIFICATION'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
                       {r.status}
                     </span>
                   </td>
                   <td className="p-4 flex space-x-2">
                     {r.status === 'PENDING_VERIFICATION' && (
                       <>
-                        <button onClick={() => handleDecision('RESTAURANT', r.id, 'ACTIVE')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer" title="Approve">
+                        <button
+                          onClick={() => handleDecision('RESTAURANT', r.id, 'ACTIVE')}
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer"
+                          title="Approve"
+                        >
                           <CheckCircle className="w-5 h-5" />
                         </button>
-                        <button onClick={() => handleDecision('RESTAURANT', r.id, 'REJECTED')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer" title="Reject">
+                        <button
+                          onClick={() => handleDecision('RESTAURANT', r.id, 'REJECTED')}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
+                          title="Reject"
+                        >
                           <XCircle className="w-5 h-5" />
                         </button>
                       </>
@@ -151,17 +184,33 @@ export default function KYCDesk() {
                     {renderDocButton('Bike RC', r.bike_registration_doc)}
                   </td>
                   <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${r.approval_status === 'ACTIVE' || r.approval_status === 'APPROVED' ? 'bg-green-100 text-green-700' : r.approval_status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        r.approval_status === 'ACTIVE' || r.approval_status === 'APPROVED'
+                          ? 'bg-green-100 text-green-700'
+                          : r.approval_status === 'PENDING'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
                       {r.approval_status}
                     </span>
                   </td>
                   <td className="p-4 flex space-x-2">
                     {r.approval_status === 'PENDING' && (
                       <>
-                        <button onClick={() => handleDecision('RIDER', r.id, 'APPROVED')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer" title="Approve">
+                        <button
+                          onClick={() => handleDecision('RIDER', r.id, 'APPROVED')}
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer"
+                          title="Approve"
+                        >
                           <CheckCircle className="w-5 h-5" />
                         </button>
-                        <button onClick={() => handleDecision('RIDER', r.id, 'REJECTED')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer" title="Reject">
+                        <button
+                          onClick={() => handleDecision('RIDER', r.id, 'REJECTED')}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
+                          title="Reject"
+                        >
                           <XCircle className="w-5 h-5" />
                         </button>
                       </>
@@ -180,7 +229,10 @@ export default function KYCDesk() {
           <div className="bg-white rounded-2xl max-w-3xl w-full flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b">
               <h3 className="font-semibold text-lg">{docModal.title}</h3>
-              <button onClick={() => setDocModal({ isOpen: false, url: '', title: '' })} className="text-gray-400 hover:text-gray-800 cursor-pointer">
+              <button
+                onClick={() => setDocModal({ isOpen: false, url: '', title: '' })}
+                className="text-gray-400 hover:text-gray-800 cursor-pointer"
+              >
                 <XCircle className="w-6 h-6" />
               </button>
             </div>
@@ -188,7 +240,11 @@ export default function KYCDesk() {
               {docModal.url.includes('application/pdf') ? (
                 <iframe src={docModal.url} className="w-full h-[600px] border-0 rounded-lg" />
               ) : (
-                <img src={docModal.url} alt="Document" className="max-w-full object-contain rounded-lg shadow-sm" />
+                <img
+                  src={docModal.url}
+                  alt="Document"
+                  className="max-w-full object-contain rounded-lg shadow-sm"
+                />
               )}
             </div>
           </div>

@@ -7,7 +7,7 @@ export const initSocket = () => {
     const token = localStorage.getItem('adminToken');
     socket = io('https://foodzy-backend-dmp6.onrender.com', {
       auth: { token },
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
     });
   }
   return socket;

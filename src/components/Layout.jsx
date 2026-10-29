@@ -17,16 +17,20 @@ export default function Layout({ children }) {
     { name: 'Directory', path: '/directory', icon: Users, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
     { name: 'App CMS', path: '/cms', icon: ImageIcon, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
     { name: 'Finance Console', path: '/finance', icon: BadgeDollarSign, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN'] },
-    { name: 'God-Eye Team', path: '/team', icon: ShieldAlert, roles: ['SUPER_ADMIN'] },
+    { name: 'Super Admin Team', path: '/team', icon: ShieldAlert, roles: ['SUPER_ADMIN'] },
   ];
 
   return (
     <div className="flex h-screen bg-light">
       {/* Sidebar */}
       <div className="w-64 bg-dark text-white flex flex-col">
-        <div className="p-6">
-          <h1 className="text-2xl font-bold text-brand">Foodzy Admin</h1>
-          <p className="text-xs text-gray-400 mt-1 uppercase tracking-wider">{user?.role_type}</p>
+        <div className="p-6 border-b border-white/10">
+          <h1 className="text-2xl font-black text-white tracking-tight">
+            foodzy <span className="text-emerald-400">admin</span>
+          </h1>
+          <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-widest font-bold">
+            {user?.role_type?.replace('_', ' ') || 'SUPER ADMIN'}
+          </p>
         </div>
         
         <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
@@ -40,7 +44,9 @@ export default function Layout({ children }) {
                 key={item.name}
                 to={item.path}
                 className={`flex items-center px-4 py-3 rounded-xl transition-all ${
-                  isActive ? 'bg-brand text-white font-medium shadow-lg shadow-brand/20' : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                  isActive
+                    ? 'bg-brand text-white font-semibold shadow-lg shadow-brand/25'
+                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
                 }`}
               >
                 <Icon className="w-5 h-5 mr-3" />
@@ -53,7 +59,7 @@ export default function Layout({ children }) {
         <div className="p-4 border-t border-white/10">
           <button 
             onClick={logout}
-            className="flex items-center w-full px-4 py-3 text-gray-400 hover:text-red-400 hover:bg-white/5 rounded-xl transition-all"
+            className="flex items-center w-full px-4 py-3 text-gray-400 hover:text-red-400 hover:bg-white/5 rounded-xl transition-all cursor-pointer"
           >
             <LogOut className="w-5 h-5 mr-3" />
             Sign Out

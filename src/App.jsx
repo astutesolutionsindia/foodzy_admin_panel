@@ -16,25 +16,16 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark flex items-center justify-center text-brand">
-        <span className="animate-pulse font-bold text-xl">Loading Foodzy Admin...</span>
+      <div className="min-h-screen bg-dark flex items-center justify-center text-white">
+        <span className="animate-pulse font-bold text-xl">Loading Foodzy Super Admin...</span>
       </div>
     );
   }
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // Wrap the protected screen in our permanent Sidebar layout
   return <Layout>{children}</Layout>;
 };
-
-// Temporary placeholder for any future unbuilt screens
-const ComingSoon = ({ title }) => (
-  <div className="flex flex-col items-center justify-center h-[70vh] text-gray-400">
-    <h2 className="text-2xl font-bold text-gray-700 mb-2">{title}</h2>
-    <p>This module is under construction.</p>
-  </div>
-);
 
 function AppRoutes() {
   return (
