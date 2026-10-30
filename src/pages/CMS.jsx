@@ -126,12 +126,12 @@ export default function CMS() {
       if (!isMounted || !mapContainerRef.current) return;
 
       if (!mapInstanceRef.current) {
-        let defaultCenter = [33.1457, 75.548];
+        let defaultCenter = [32.7266, 74.8570];
         if (savedZones.length > 0 && savedZones[0].length > 0) {
           defaultCenter = [Number(savedZones[0][0][0]), Number(savedZones[0][0][1])];
         }
 
-        const map = L.map(mapContainerRef.current).setView(defaultCenter, 14);
+        const map = L.map(mapContainerRef.current).setView(defaultCenter, 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors',
           maxZoom: 19

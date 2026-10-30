@@ -4,12 +4,21 @@ import { ShieldCheck, Phone, KeyRound, Loader2 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../config/api';
 
+function normalizeIndianPhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length >= 10) {
+    return `+91${digits.slice(-10)}`;
+  }
+  return `+91${digits}`;
+}
+
 export default function Login() {
   const { user, login } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('+91');
+  const [formattedPhone, setFormattedPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,9 +32,18 @@ export default function Login() {
   const handleSendOtp = async (e) => {
     e.preventDefault();
     setError('');
+
+    const digitsOnly = String(phone).replace(/\D/g, '');
+    if (digitsOnly.length < 10) {
+      setError('Please enter a valid 10-digit Admin phone number.');
+      return;
+    }
+
+    const cleanPhone = normalizeIndianPhone(phone);
     setLoading(true);
     try {
-      await api.post('/auth/send-otp', { phoneNumber: phone });
+      await api.post('/auth/send-otp', { phoneNumber: cleanPhone });
+      setFormattedPhone(cleanPhone);
       setStep(2);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to send OTP');
@@ -39,9 +57,10 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
+      const targetPhone = formattedPhone || normalizeIndianPhone(phone);
       const res = await api.post('/auth/verify-otp', {
-        phoneNumber: phone,
-        code: otp
+        phoneNumber: targetPhone,
+        code: String(otp).trim()
       });
 
       const userRole = res.data.user.role_type;
@@ -105,7 +124,7 @@ export default function Login() {
           <form onSubmit={handleVerifyOtp} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Enter OTP sent to {phone}
+                Enter OTP sent to {formattedPhone || phone}
               </label>
               <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -129,7 +148,11 @@ export default function Login() {
             </button>
             <button
               type="button"
-              onClick={() => setStep(1)}
+              onClick={() => {
+                setStep(1);
+                setOtp('');
+                setError('');
+              }}
               className="w-full text-gray-500 text-sm hover:text-dark transition-colors cursor-pointer"
             >
               Use a different phone number

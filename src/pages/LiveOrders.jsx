@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Activity, MapPin, Search, Edit2, XCircle, Loader2,
-  Bike, Store, User, AlertTriangle, CreditCard
+  Bike, Store, User, AlertTriangle, CreditCard, KeyRound
 } from 'lucide-react';
 import { initSocket, disconnectSocket } from '../config/socket';
 import api from '../config/api';
+
+const TERMINAL_STATUSES = ['COMPLETED', 'DELIVERED', 'CANCELLED', 'REJECTED'];
 
 export default function LiveOrders() {
   const location = useLocation();
@@ -85,30 +87,31 @@ export default function LiveOrders() {
   }
 
   const filteredOrders = orders.filter((o) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      String(o.id).includes(searchQuery) ||
-      String(o.customer_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      String(o.restaurant_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      String(o.razorpay_payment_id || '').toLowerCase().includes(searchQuery.toLowerCase());
+      String(o.id).includes(q) ||
+      String(o.customer_name || '').toLowerCase().includes(q) ||
+      String(o.restaurant_name || '').toLowerCase().includes(q) ||
+      String(o.razorpay_payment_id || '').toLowerCase().includes(q);
 
     if (activeTab === 'ACTIVE') {
-      return !['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(o.status) && matchesSearch;
+      return !TERMINAL_STATUSES.includes(o.status) && matchesSearch;
     } else if (activeTab === 'STUCK') {
       const isStuck =
-        (o.status === 'PREPARING' || o.status === 'READY') &&
+        ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status) &&
         !o.rider_id &&
         Date.now() - new Date(o.created_at).getTime() > 10 * 60 * 1000;
       return isStuck && matchesSearch;
     } else {
-      return ['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(o.status) && matchesSearch;
+      return TERMINAL_STATUSES.includes(o.status) && matchesSearch;
     }
   });
 
   const getStatusColor = (status) => {
     if (['COMPLETED', 'DELIVERED'].includes(status)) return 'bg-green-100 text-green-700';
-    if (status === 'CANCELLED') return 'bg-red-100 text-red-700';
-    if (['PREPARING', 'READY'].includes(status)) return 'bg-orange-100 text-orange-700';
-    if (status === 'PICKED_UP') return 'bg-blue-100 text-blue-700';
+    if (['CANCELLED', 'REJECTED'].includes(status)) return 'bg-red-100 text-red-700';
+    if (['ACCEPTED', 'PREPARING', 'READY'].includes(status)) return 'bg-orange-100 text-orange-700';
+    if (['PICKED_UP', 'OUT_FOR_DELIVERY'].includes(status)) return 'bg-blue-100 text-blue-700';
     return 'bg-yellow-100 text-yellow-700';
   };
 
@@ -118,7 +121,7 @@ export default function LiveOrders() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Live Orders Control</h2>
           <p className="text-gray-500">
-            Monitor dispatch, Razorpay payment status, and override active deliveries.
+            Monitor dispatch, Razorpay payment status, delivery PINs, and override active deliveries.
           </p>
         </div>
 
@@ -197,6 +200,11 @@ export default function LiveOrders() {
                           minute: '2-digit'
                         })}
                       </div>
+                      {o.delivery_otp && (
+                        <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 bg-amber-50 text-amber-800 rounded text-[10px] font-mono font-bold border border-amber-200">
+                          <KeyRound className="w-2.5 h-2.5" /> PIN: {o.delivery_otp}
+                        </div>
+                      )}
                     </td>
                     <td className="p-4">
                       <div className="font-medium text-gray-800 flex items-center">
@@ -296,11 +304,14 @@ export default function LiveOrders() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white"
                 >
                   <option value="PENDING">PENDING</option>
+                  <option value="ACCEPTED">ACCEPTED</option>
                   <option value="PREPARING">PREPARING</option>
                   <option value="READY">READY</option>
                   <option value="PICKED_UP">PICKED_UP</option>
+                  <option value="OUT_FOR_DELIVERY">OUT_FOR_DELIVERY</option>
                   <option value="DELIVERED">DELIVERED</option>
                   <option value="CANCELLED">CANCELLED</option>
+                  <option value="REJECTED">REJECTED</option>
                 </select>
               </div>
 
