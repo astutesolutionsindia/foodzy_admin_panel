@@ -3,12 +3,17 @@ import { io } from 'socket.io-client';
 let socket;
 
 export const initSocket = () => {
+  const token = localStorage.getItem('adminToken');
   if (!socket) {
-    const token = localStorage.getItem('adminToken');
     socket = io('https://foodzy-backend-dmp6.onrender.com', {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
+  } else {
+    socket.auth = { token };
+    if (!socket.connected) {
+      socket.connect();
+    }
   }
   return socket;
 };
