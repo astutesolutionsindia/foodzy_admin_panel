@@ -10,38 +10,76 @@ export default function CommandCenter() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState(null);
   const [liveOrders, setLiveOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchOverview = async () => {
       try {
         const res = await api.get('/admin/overview');
-        setMetrics(res.data);
-        setLiveOrders((res.data.recentOrders || []).slice(0, 10));
+        if (isMounted) {
+          setMetrics(res.data || {});
+          setLiveOrders((res.data?.recentOrders || []).slice(0, 10));
+          setLoading(false);
+        }
       } catch (err) {
-        console.error('Failed to fetch dashboard overview');
+        console.error('Failed to fetch dashboard overview:', err);
+        if (isMounted) {
+          // Fallback safe state so dashboard never hangs forever on network error
+          setMetrics({
+            operational: {
+              activeOrdersCount: 0,
+              stuckOrdersCount: 0,
+              pendingRestaurantKyc: 0,
+              pendingRiderKyc: 0,
+              totalCustomers: 0,
+              totalRestaurants: 0,
+              totalRiders: 0
+            },
+            financials: {
+              grossMerchandiseValue: 0,
+              totalCommission: 0,
+              totalGst: 0
+            }
+          });
+          setLoading(false);
+        }
       }
     };
 
     fetchOverview();
 
     const socket = initSocket();
-    socket.on('newIncomingOrder', (order) => {
-      setLiveOrders((prev) => [order, ...prev].slice(0, 10));
-      fetchOverview();
-    });
+    if (socket) {
+      socket.on('newIncomingOrder', (order) => {
+        if (isMounted) {
+          setLiveOrders((prev) => [order, ...prev].slice(0, 10));
+          fetchOverview();
+        }
+      });
 
-    socket.on('orderStatusChanged', () => fetchOverview());
+      socket.on('orderStatusChanged', () => {
+        if (isMounted) fetchOverview();
+      });
+    }
 
-    return () => disconnectSocket();
+    return () => {
+      isMounted = false;
+      disconnectSocket();
+    };
   }, []);
 
-  if (!metrics) {
+  if (loading || !metrics) {
     return (
-      <div className="animate-pulse p-8 font-bold text-gray-500">
+      <div className="animate-pulse p-8 font-bold text-gray-500 flex items-center justify-center min-h-[50vh]">
         Loading Super Admin live telemetry...
       </div>
     );
   }
+
+  const op = metrics.operational || {};
+  const fin = metrics.financials || {};
 
   const MetricCard = ({ title, value, icon: Icon, colorClass, onClick }) => (
     <div
@@ -55,7 +93,7 @@ export default function CommandCenter() {
       </div>
       <div>
         <p className="text-sm text-gray-500 font-medium">{title}</p>
-        <p className="text-2xl font-bold text-gray-800">{value}</p>
+        <p className="text-2xl font-bold text-gray-800">{value ?? 0}</p>
       </div>
     </div>
   );
@@ -71,28 +109,28 @@ export default function CommandCenter() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Active Orders"
-          value={metrics.operational.activeOrdersCount}
+          value={op.activeOrdersCount}
           icon={Activity}
           colorClass="bg-blue-50 text-blue-600"
           onClick={() => navigate('/orders')}
         />
         <MetricCard
           title="Stuck Orders (>10m)"
-          value={metrics.operational.stuckOrdersCount}
+          value={op.stuckOrdersCount}
           icon={AlertTriangle}
           colorClass="bg-red-50 text-red-600"
           onClick={() => navigate('/orders?stuck=true')}
         />
         <MetricCard
           title="Pending KYC (Rest.)"
-          value={metrics.operational.pendingRestaurantKyc}
+          value={op.pendingRestaurantKyc}
           icon={ShoppingBag}
           colorClass="bg-orange-50 text-orange-600"
           onClick={() => navigate('/kyc')}
         />
         <MetricCard
           title="Pending KYC (Riders)"
-          value={metrics.operational.pendingRiderKyc}
+          value={op.pendingRiderKyc}
           icon={Bike}
           colorClass="bg-yellow-50 text-yellow-600"
           onClick={() => navigate('/kyc')}
@@ -100,25 +138,25 @@ export default function CommandCenter() {
       </div>
 
       {/* Financial Metrics */}
-      {user.role_type !== 'FIELD_ADMIN' && metrics.financials && (
+      {user && user.role_type !== 'FIELD_ADMIN' && (
         <>
-          <h3 className="text-lg font-bold text-gray-800 mt-8">Financial Pulse (Today)</h3>
+          <h3 className="text-lg font-bold text-gray-800 mt-8">Financial Pulse</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <MetricCard
               title="Gross Merchandise Value"
-              value={`₹${metrics.financials.grossMerchandiseValue}`}
+              value={`₹${fin.grossMerchandiseValue ?? 0}`}
               icon={DollarSign}
               colorClass="bg-green-50 text-green-600"
             />
             <MetricCard
               title="Platform Commission"
-              value={`₹${metrics.financials.totalCommission}`}
+              value={`₹${fin.totalCommission ?? 0}`}
               icon={Wallet}
               colorClass="bg-emerald-50 text-emerald-600"
             />
             <MetricCard
               title="GST Collected"
-              value={`₹${metrics.financials.totalGst}`}
+              value={`₹${fin.totalGst ?? 0}`}
               icon={DollarSign}
               colorClass="bg-purple-50 text-purple-600"
             />
@@ -179,10 +217,12 @@ export default function CommandCenter() {
                     </span>
                   </td>
                   <td className="p-4 text-gray-500">
-                    {new Date(o.created_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {o.created_at
+                      ? new Date(o.created_at).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : 'Just now'}
                   </td>
                 </tr>
               );
