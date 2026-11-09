@@ -1,163 +1,206 @@
-import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, FileText, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { CheckCircle, XCircle, FileText, ExternalLink, ShieldCheck } from 'lucide-react';
 import api from '../config/api';
-import { initSocket, disconnectSocket } from '../config/socket';
+import { initSocket } from '../config/socket';
 
 export default function KYCDesk() {
-  const [data, setData] = useState({ riders: [], restaurants: [] });
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('RESTAURANTS');
-  const [docModal, setDocModal] = useState({ isOpen: false, url: '', title: '' });
-
-  const fetchKYC = async () => {
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, ACTIVE/APPROVED, REJECTED
+  
+  const [data, setData] = useState(() => {
     try {
-      const res = await api.get('/admin/kyc/pending');
-      setData(res.data || { riders: [], restaurants: [] });
-    } catch (err) {
-      console.error('Failed to fetch KYC data');
-    } finally {
-      setLoading(false);
+      const cached = localStorage.getItem('adminKycCache');
+      return cached ? JSON.parse(cached) : { restaurants: [], riders: [] };
+    } catch {
+      return { restaurants: [], riders: [] };
     }
-  };
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [docModal, setDocModal] = useState({ isOpen: false, url: '', title: '' });
+  const [rejectModal, setRejectModal] = useState({ isOpen: false, type: '', id: null, reason: '' });
+
+  const fetchKycQueue = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.get(`/api/admin/kyc/pending?status=${statusFilter}`);
+      if (res.data) {
+        setData(res.data);
+        localStorage.setItem('adminKycCache', JSON.stringify(res.data));
+      }
+    } catch (err) {
+      console.error('Failed to fetch KYC queue:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [statusFilter]);
 
   useEffect(() => {
-    fetchKYC();
+    fetchKycQueue();
 
     const socket = initSocket();
-    socket.on('kycQueueUpdated', () => fetchKYC());
+    if (socket) {
+      const handleKycUpdate = () => fetchKycQueue();
+      socket.on('kycQueueUpdated', handleKycUpdate);
+      return () => {
+        socket.off('kycQueueUpdated', handleKycUpdate);
+      };
+    }
+  }, [fetchKycQueue]);
 
-    return () => disconnectSocket();
-  }, []);
-
-  const handleDecision = async (type, id, decision) => {
-    const reason =
-      decision === 'REJECTED' ? prompt('Enter rejection reason (sent to partner):') : null;
-    if (decision === 'REJECTED' && !reason) return;
-
+  const handleDecision = async (type, id, decision, customReason = '') => {
     try {
-      if (type === 'RESTAURANT') {
-        await api.put(`/admin/kyc/restaurant/${id}`, { decision, rejectionReason: reason });
-      } else {
-        await api.put(`/admin/kyc/rider/${id}`, { decision, rejectionReason: reason });
-      }
-      fetchKYC();
+      const endpoint = type === 'RESTAURANT' ? `/api/admin/kyc/restaurant/${id}` : `/api/admin/kyc/rider/${id}`;
+      await api.put(endpoint, {
+        decision,
+        rejectionReason: customReason || 'Documents unclear or invalid'
+      });
+      setRejectModal({ isOpen: false, type: '', id: null, reason: '' });
+      fetchKycQueue();
     } catch (err) {
-      alert('Action failed. Check console.');
+      alert(err.response?.data?.error || 'Failed to update status');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center mt-20">
-        <Loader2 className="w-10 h-10 animate-spin text-brand" />
-      </div>
-    );
-  }
-
-  const renderDocButton = (label, base64Url) => {
-    if (!base64Url) return <span className="text-xs text-gray-400 italic">Not uploaded</span>;
+  const renderDocButton = (title, url) => {
+    if (!url) {
+      return <span className="text-xs text-gray-400 italic">Not uploaded</span>;
+    }
     return (
       <button
-        onClick={() => setDocModal({ isOpen: true, url: base64Url, title: label })}
-        className="flex items-center text-sm text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded-md cursor-pointer"
+        onClick={() => setDocModal({ isOpen: true, url, title })}
+        className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold transition-colors mr-2 cursor-pointer"
       >
-        <FileText className="w-4 h-4 mr-2" /> View {label}
+        <FileText className="w-3.5 h-3.5 mr-1.5" />
+        {title}
+        <ExternalLink className="w-3 h-3 ml-1 opacity-70" />
       </button>
     );
   };
 
+  const restaurants = data.restaurants || [];
+  const riders = data.riders || [];
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800">KYC Verification Desk</h2>
-        <p className="text-gray-500">
-          Review and approve partner PDF & photo compliance documents.
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">KYC Verification Desk</h2>
+          <p className="text-gray-500">Review and approve partner FSSAI, License, and vehicle compliance documents</p>
+        </div>
+        
+        {/* Entity Tabs */}
+        <div className="flex bg-gray-200/80 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab('RESTAURANTS')}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'RESTAURANTS' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            Restaurants ({restaurants.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('RIDERS')}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'RIDERS' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            Riders ({riders.length})
+          </button>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex space-x-4 border-b border-gray-200">
-        <button
-          onClick={() => setActiveTab('RESTAURANTS')}
-          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${
-            activeTab === 'RESTAURANTS'
-              ? 'border-b-2 border-brand text-brand'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Restaurants (
-          {data.restaurants.filter((r) => r.status === 'PENDING_VERIFICATION').length} Pending)
-        </button>
-        <button
-          onClick={() => setActiveTab('RIDERS')}
-          className={`pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${
-            activeTab === 'RIDERS'
-              ? 'border-b-2 border-brand text-brand'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Riders ({data.riders.filter((r) => r.approval_status === 'PENDING').length} Pending)
-        </button>
+      {/* Status Filter Pills */}
+      <div className="flex items-center space-x-2 border-b border-gray-200 pb-3">
+        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2">Filter Status:</span>
+        {['ALL', 'PENDING', 'ACTIVE', 'REJECTED'].map((st) => (
+          <button
+            key={st}
+            onClick={() => setStatusFilter(st)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              statusFilter === st
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {st === 'ACTIVE' ? 'APPROVED / ACTIVE' : st}
+          </button>
+        ))}
+        {isLoading && <span className="text-xs text-emerald-600 font-semibold animate-pulse ml-4">Updating list...</span>}
       </div>
 
-      {/* List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Table Section */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         {activeTab === 'RESTAURANTS' && (
           <table className="w-full text-left">
             <thead className="bg-gray-50 text-gray-600 text-sm">
               <tr>
-                <th className="p-4 font-medium">Partner Info</th>
-                <th className="p-4 font-medium">Documents</th>
+                <th className="p-4 font-medium">Restaurant Info</th>
+                <th className="p-4 font-medium">Compliance Documents</th>
                 <th className="p-4 font-medium">Status</th>
                 <th className="p-4 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {data.restaurants.map((r) => (
-                <tr key={r.id} className="hover:bg-gray-50/50">
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {restaurants.map((rest) => (
+                <tr key={rest.id} className="hover:bg-gray-50/50">
                   <td className="p-4">
-                    <p className="font-semibold text-gray-800">{r.restaurant_name}</p>
-                    <p className="text-sm text-gray-500">{r.phone_number}</p>
+                    <p className="font-bold text-gray-800">{rest.restaurant_name || rest.full_name}</p>
+                    <p className="text-xs text-gray-500">{rest.phone_number} • {rest.cuisine || 'General'}</p>
                   </td>
-                  <td className="p-4 space-y-2">
-                    {renderDocButton('FSSAI License', r.fssai_doc)}
-                    {renderDocButton('Registration', r.registration_doc)}
+                  <td className="p-4 space-y-1">
+                    <div className="flex flex-wrap gap-1">
+                      {renderDocButton('FSSAI Cert', rest.fssai_doc)}
+                      {renderDocButton('Registration', rest.registration_doc)}
+                    </div>
                   </td>
                   <td className="p-4">
                     <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        r.status === 'ACTIVE'
+                      className={`px-3 py-1 rounded-full text-xs font-bold ${
+                        rest.status === 'ACTIVE' || rest.status === 'APPROVED'
                           ? 'bg-green-100 text-green-700'
-                          : r.status === 'PENDING_VERIFICATION'
+                          : rest.status === 'PENDING_VERIFICATION' || rest.status === 'PENDING'
                           ? 'bg-yellow-100 text-yellow-700'
                           : 'bg-red-100 text-red-700'
                       }`}
                     >
-                      {r.status}
+                      {rest.status}
                     </span>
-                  </td>
-                  <td className="p-4 flex space-x-2">
-                    {r.status === 'PENDING_VERIFICATION' && (
-                      <>
-                        <button
-                          onClick={() => handleDecision('RESTAURANT', r.id, 'ACTIVE')}
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer"
-                          title="Approve"
-                        >
-                          <CheckCircle className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDecision('RESTAURANT', r.id, 'REJECTED')}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
-                          title="Reject"
-                        >
-                          <XCircle className="w-5 h-5" />
-                        </button>
-                      </>
+                    {rest.rejection_reason && (
+                      <p className="text-[11px] text-red-500 mt-1 max-w-xs">{rest.rejection_reason}</p>
                     )}
+                  </td>
+                  <td className="p-4">
+                    <div className="flex items-center space-x-2">
+                      {rest.status !== 'ACTIVE' && (
+                        <button
+                          onClick={() => handleDecision('RESTAURANT', rest.id, 'ACTIVE')}
+                          className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+                          title="Approve Restaurant"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" /> Approve
+                        </button>
+                      )}
+                      {rest.status !== 'REJECTED' && (
+                        <button
+                          onClick={() => setRejectModal({ isOpen: true, type: 'RESTAURANT', id: rest.id, reason: '' })}
+                          className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+                          title="Reject KYC"
+                        >
+                          <XCircle className="w-4 h-4 mr-1" /> Reject
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
+              {restaurants.length === 0 && (
+                <tr>
+                  <td colSpan="4" className="p-8 text-center text-gray-400">
+                    No restaurant KYC records found matching filter "{statusFilter}".
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
@@ -167,25 +210,27 @@ export default function KYCDesk() {
             <thead className="bg-gray-50 text-gray-600 text-sm">
               <tr>
                 <th className="p-4 font-medium">Rider Info</th>
-                <th className="p-4 font-medium">Documents</th>
+                <th className="p-4 font-medium">Compliance Documents</th>
                 <th className="p-4 font-medium">Status</th>
                 <th className="p-4 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {data.riders.map((r) => (
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {riders.map((r) => (
                 <tr key={r.id} className="hover:bg-gray-50/50">
                   <td className="p-4">
-                    <p className="font-semibold text-gray-800">{r.full_name}</p>
-                    <p className="text-sm text-gray-500">{r.phone_number}</p>
+                    <p className="font-bold text-gray-800">{r.full_name}</p>
+                    <p className="text-xs text-gray-500">{r.phone_number}</p>
                   </td>
-                  <td className="p-4 space-y-2">
-                    {renderDocButton('Driving License', r.driving_license_doc)}
-                    {renderDocButton('Bike RC', r.bike_registration_doc)}
+                  <td className="p-4 space-y-1">
+                    <div className="flex flex-wrap gap-1">
+                      {renderDocButton('Driving License', r.driving_license_doc)}
+                      {renderDocButton('Bike RC', r.bike_registration_doc)}
+                    </div>
                   </td>
                   <td className="p-4">
                     <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      className={`px-3 py-1 rounded-full text-xs font-bold ${
                         r.approval_status === 'ACTIVE' || r.approval_status === 'APPROVED'
                           ? 'bg-green-100 text-green-700'
                           : r.approval_status === 'PENDING'
@@ -195,29 +240,41 @@ export default function KYCDesk() {
                     >
                       {r.approval_status}
                     </span>
+                    {r.rejection_reason && (
+                      <p className="text-[11px] text-red-500 mt-1 max-w-xs">{r.rejection_reason}</p>
+                    )}
                   </td>
-                  <td className="p-4 flex space-x-2">
-                    {r.approval_status === 'PENDING' && (
-                      <>
+                  <td className="p-4">
+                    <div className="flex items-center space-x-2">
+                      {r.approval_status !== 'ACTIVE' && r.approval_status !== 'APPROVED' && (
                         <button
                           onClick={() => handleDecision('RIDER', r.id, 'APPROVED')}
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg cursor-pointer"
-                          title="Approve"
+                          className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+                          title="Approve Rider"
                         >
-                          <CheckCircle className="w-5 h-5" />
+                          <CheckCircle className="w-4 h-4 mr-1" /> Approve
                         </button>
+                      )}
+                      {r.approval_status !== 'REJECTED' && (
                         <button
-                          onClick={() => handleDecision('RIDER', r.id, 'REJECTED')}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
-                          title="Reject"
+                          onClick={() => setRejectModal({ isOpen: true, type: 'RIDER', id: r.id, reason: '' })}
+                          className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+                          title="Reject KYC"
                         >
-                          <XCircle className="w-5 h-5" />
+                          <XCircle className="w-4 h-4 mr-1" /> Reject
                         </button>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
+              {riders.length === 0 && (
+                <tr>
+                  <td colSpan="4" className="p-8 text-center text-gray-400">
+                    No rider KYC records found matching filter "{statusFilter}".
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
@@ -226,9 +283,12 @@ export default function KYCDesk() {
       {/* Document Viewer Modal */}
       {docModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-3xl w-full flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-2xl max-w-3xl w-full flex flex-col max-h-[90vh] shadow-2xl overflow-hidden">
             <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="font-semibold text-lg">{docModal.title}</h3>
+              <h3 className="font-bold text-lg flex items-center">
+                <ShieldCheck className="w-5 h-5 text-emerald-600 mr-2" />
+                {docModal.title}
+              </h3>
               <button
                 onClick={() => setDocModal({ isOpen: false, url: '', title: '' })}
                 className="text-gray-400 hover:text-gray-800 cursor-pointer"
@@ -237,15 +297,46 @@ export default function KYCDesk() {
               </button>
             </div>
             <div className="p-4 overflow-auto flex-1 flex justify-center bg-gray-50">
-              {docModal.url.includes('application/pdf') ? (
-                <iframe src={docModal.url} className="w-full h-[600px] border-0 rounded-lg" />
+              {docModal.url.includes('application/pdf') || docModal.url.endsWith('.pdf') ? (
+                <iframe src={docModal.url} className="w-full h-[600px] border-0 rounded-lg shadow-sm" />
               ) : (
                 <img
                   src={docModal.url}
-                  alt="Document"
+                  alt="Document Preview"
                   className="max-w-full object-contain rounded-lg shadow-sm"
                 />
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejection Reason Modal */}
+      {rejectModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 className="font-bold text-lg text-gray-800">Specify Rejection Reason</h3>
+            <p className="text-xs text-gray-500">Provide feedback to the partner so they can re-upload correct compliance documents.</p>
+            <textarea
+              rows="3"
+              value={rejectModal.reason}
+              onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+              placeholder="e.g. FSSAI certificate image is blurry or expired."
+              className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
+            />
+            <div className="flex justify-end space-x-3 pt-2">
+              <button
+                onClick={() => setRejectModal({ isOpen: false, type: '', id: null, reason: '' })}
+                className="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-xl font-bold text-sm cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDecision(rejectModal.type, rejectModal.id, 'REJECTED', rejectModal.reason)}
+                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-xl font-bold text-sm shadow-md cursor-pointer"
+              >
+                Confirm Rejection
+              </button>
             </div>
           </div>
         </div>
