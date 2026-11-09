@@ -1,85 +1,99 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { initSocket, disconnectSocket } from '../config/socket';
+import { initSocket } from '../config/socket';
 import { Activity, ShoppingBag, AlertTriangle, DollarSign, Wallet, Bike, CreditCard } from 'lucide-react';
 import api from '../config/api';
+
+const DEFAULT_METRICS = {
+  operational: {
+    activeOrdersCount: 0,
+    stuckOrdersCount: 0,
+    pendingRestaurantKyc: 0,
+    pendingRiderKyc: 0,
+    totalCustomers: 0,
+    totalRestaurants: 0,
+    totalRiders: 0
+  },
+  financials: {
+    grossMerchandiseValue: 0,
+    totalCommission: 0,
+    totalGst: 0,
+    totalPlatformFees: 0
+  },
+  recentOrders: []
+};
 
 export default function CommandCenter() {
   const { user } = useContext(AuthContext);
   const navigate = useNavigate();
-  const [metrics, setMetrics] = useState(null);
-  const [liveOrders, setLiveOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  const [metrics, setMetrics] = useState(() => {
+    try {
+      const cached = localStorage.getItem('adminOverviewCache');
+      return cached ? JSON.parse(cached) : DEFAULT_METRICS;
+    } catch {
+      return DEFAULT_METRICS;
+    }
+  });
+
+  const [liveOrders, setLiveOrders] = useState(() => {
+    try {
+      const cached = localStorage.getItem('adminOverviewCache');
+      const parsed = cached ? JSON.parse(cached) : null;
+      return (parsed?.recentOrders || []).slice(0, 10);
+    } catch {
+      return [];
+    }
+  });
+
+  const [isSyncing, setIsSyncing] = useState(true);
+
+  const fetchOverview = useCallback(async () => {
+    try {
+      setIsSyncing(true);
+      const res = await api.get('/admin/overview');
+      if (res.data) {
+        setMetrics(res.data);
+        setLiveOrders((res.data.recentOrders || []).slice(0, 10));
+        localStorage.setItem('adminOverviewCache', JSON.stringify(res.data));
+      }
+    } catch (err) {
+      console.error('Failed to fetch dashboard overview:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchOverview = async () => {
-      try {
-        const res = await api.get('/admin/overview');
-        if (isMounted) {
-          setMetrics(res.data || {});
-          setLiveOrders((res.data?.recentOrders || []).slice(0, 10));
-          setLoading(false);
-        }
-      } catch (err) {
-        console.error('Failed to fetch dashboard overview:', err);
-        if (isMounted) {
-          // Fallback safe state so dashboard never hangs forever on network error
-          setMetrics({
-            operational: {
-              activeOrdersCount: 0,
-              stuckOrdersCount: 0,
-              pendingRestaurantKyc: 0,
-              pendingRiderKyc: 0,
-              totalCustomers: 0,
-              totalRestaurants: 0,
-              totalRiders: 0
-            },
-            financials: {
-              grossMerchandiseValue: 0,
-              totalCommission: 0,
-              totalGst: 0
-            }
-          });
-          setLoading(false);
-        }
-      }
-    };
-
     fetchOverview();
 
     const socket = initSocket();
-    if (socket) {
-      socket.on('newIncomingOrder', (order) => {
-        if (isMounted) {
-          setLiveOrders((prev) => [order, ...prev].slice(0, 10));
-          fetchOverview();
-        }
-      });
+    const handleNewOrder = (order) => {
+      setLiveOrders((prev) => [order, ...prev.filter((o) => o.id !== order.id)].slice(0, 10));
+      fetchOverview();
+    };
+    const handleOrderChange = () => {
+      fetchOverview();
+    };
 
-      socket.on('orderStatusChanged', () => {
-        if (isMounted) fetchOverview();
-      });
+    if (socket) {
+      socket.on('newIncomingOrder', handleNewOrder);
+      socket.on('orderStatusChanged', handleOrderChange);
+      socket.on('kycQueueUpdated', handleOrderChange);
     }
 
     return () => {
-      isMounted = false;
-      disconnectSocket();
+      if (socket) {
+        socket.off('newIncomingOrder', handleNewOrder);
+        socket.off('orderStatusChanged', handleOrderChange);
+        socket.off('kycQueueUpdated', handleOrderChange);
+      }
     };
-  }, []);
+  }, [fetchOverview]);
 
-  if (loading || !metrics) {
-    return (
-      <div className="animate-pulse p-8 font-bold text-gray-500 flex items-center justify-center min-h-[50vh]">
-        Loading Super Admin live telemetry...
-      </div>
-    );
-  }
-
-  const op = metrics.operational || {};
-  const fin = metrics.financials || {};
+  const op = metrics?.operational || DEFAULT_METRICS.operational;
+  const fin = metrics?.financials || DEFAULT_METRICS.financials;
 
   const MetricCard = ({ title, value, icon: Icon, colorClass, onClick }) => (
     <div
@@ -100,9 +114,16 @@ export default function CommandCenter() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800">Super Admin Command Center</h2>
-        <p className="text-gray-500">Real-time platform telemetry, Razorpay settlements & dispatch radar</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Super Admin Command Center</h2>
+          <p className="text-gray-500">Real-time platform telemetry, Razorpay settlements & dispatch radar</p>
+        </div>
+        {isSyncing && (
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+            Syncing live telemetry...
+          </span>
+        )}
       </div>
 
       {/* Operational Metrics */}
@@ -220,7 +241,7 @@ export default function CommandCenter() {
                     {o.created_at
                       ? new Date(o.created_at).toLocaleTimeString([], {
                           hour: '2-digit',
-                          minute: '2-digit'
+                          minute: '2-digit',
                         })
                       : 'Just now'}
                   </td>
