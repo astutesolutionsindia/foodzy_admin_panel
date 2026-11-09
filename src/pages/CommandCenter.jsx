@@ -2,7 +2,10 @@ import { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
-import { Activity, ShoppingBag, AlertTriangle, DollarSign, Wallet, Bike, CreditCard } from 'lucide-react';
+import {
+  Activity, ShoppingBag, AlertTriangle, DollarSign,
+  Wallet, Bike, CreditCard, RefreshCw, Layers
+} from 'lucide-react';
 import api from '../config/api';
 
 const DEFAULT_METRICS = {
@@ -119,11 +122,20 @@ export default function CommandCenter() {
           <h2 className="text-2xl font-bold text-gray-800">Super Admin Command Center</h2>
           <p className="text-gray-500">Real-time platform telemetry, Razorpay settlements & dispatch radar</p>
         </div>
-        {isSyncing && (
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
-            Syncing live telemetry...
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {isSyncing && (
+            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+              Syncing live telemetry...
+            </span>
+          )}
+          <button
+            onClick={fetchOverview}
+            title="Refresh Telemetry"
+            className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-600 cursor-pointer transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Operational Metrics */}
@@ -162,24 +174,34 @@ export default function CommandCenter() {
       {user && user.role_type !== 'FIELD_ADMIN' && (
         <>
           <h3 className="text-lg font-bold text-gray-800 mt-8">Financial Pulse</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <MetricCard
               title="Gross Merchandise Value"
               value={`₹${fin.grossMerchandiseValue ?? 0}`}
               icon={DollarSign}
               colorClass="bg-green-50 text-green-600"
+              onClick={() => navigate('/finance')}
             />
             <MetricCard
               title="Platform Commission"
               value={`₹${fin.totalCommission ?? 0}`}
               icon={Wallet}
               colorClass="bg-emerald-50 text-emerald-600"
+              onClick={() => navigate('/finance')}
             />
             <MetricCard
-              title="GST Collected"
+              title="Platform Fees (5%+10%)"
+              value={`₹${fin.totalPlatformFees ?? 0}`}
+              icon={Layers}
+              colorClass="bg-indigo-50 text-indigo-600"
+              onClick={() => navigate('/finance')}
+            />
+            <MetricCard
+              title="GST Collected (5%)"
               value={`₹${fin.totalGst ?? 0}`}
               icon={DollarSign}
               colorClass="bg-purple-50 text-purple-600"
+              onClick={() => navigate('/finance')}
             />
           </div>
         </>
@@ -188,75 +210,81 @@ export default function CommandCenter() {
       {/* Live Order Feed */}
       <h3 className="text-lg font-bold text-gray-800 mt-8">Live Order Stream</h3>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-gray-50 text-gray-600">
-            <tr>
-              <th className="p-4 font-medium">Order ID</th>
-              <th className="p-4 font-medium">Amount</th>
-              <th className="p-4 font-medium">Payment</th>
-              <th className="p-4 font-medium">Status</th>
-              <th className="p-4 font-medium">Time</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {liveOrders.map((o) => {
-              const isRazorpay =
-                o.payment_method === 'RAZORPAY' ||
-                o.payment_method === 'ONLINE' ||
-                Boolean(o.razorpay_payment_id);
-              return (
-                <tr
-                  key={o.id}
-                  onClick={() => navigate('/orders')}
-                  className="hover:bg-gray-50/50 cursor-pointer transition-colors"
-                >
-                  <td className="p-4 font-semibold text-gray-800">#FZ-{o.id}</td>
-                  <td className="p-4 font-bold text-gray-800">₹{o.total_amount}</td>
-                  <td className="p-4">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${
-                        isRazorpay
-                          ? 'bg-indigo-50 text-indigo-700'
-                          : 'bg-gray-100 text-gray-700'
-                      }`}
-                    >
-                      <CreditCard className="w-3 h-3 mr-1" />
-                      {isRazorpay ? 'RAZORPAY PAID' : o.payment_method || 'COD'}
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <span
-                      className={`px-2 py-1 rounded-md text-xs font-semibold ${
-                        o.status === 'COMPLETED' || o.status === 'DELIVERED'
-                          ? 'bg-green-100 text-green-700'
-                          : o.status === 'CANCELLED'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}
-                    >
-                      {o.status}
-                    </span>
-                  </td>
-                  <td className="p-4 text-gray-500">
-                    {o.created_at
-                      ? new Date(o.created_at).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      : 'Just now'}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-gray-50 text-gray-600">
+              <tr>
+                <th className="p-4 font-medium">Order ID</th>
+                <th className="p-4 font-medium">Customer</th>
+                <th className="p-4 font-medium">Restaurant</th>
+                <th className="p-4 font-medium">Amount</th>
+                <th className="p-4 font-medium">Payment</th>
+                <th className="p-4 font-medium">Status</th>
+                <th className="p-4 font-medium">Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {liveOrders.map((o) => {
+                const isRazorpay =
+                  o.payment_method === 'RAZORPAY' ||
+                  o.payment_method === 'ONLINE' ||
+                  Boolean(o.razorpay_payment_id);
+                return (
+                  <tr
+                    key={o.id}
+                    onClick={() => navigate('/orders')}
+                    className="hover:bg-gray-50/50 cursor-pointer transition-colors"
+                  >
+                    <td className="p-4 font-semibold text-gray-800">#FZ-{o.id}</td>
+                    <td className="p-4 text-gray-700 font-medium">{o.customer_name || 'Customer'}</td>
+                    <td className="p-4 text-gray-600">{o.restaurant_name || 'Foodzy Kitchen'}</td>
+                    <td className="p-4 font-bold text-gray-800">₹{o.total_amount}</td>
+                    <td className="p-4">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${
+                          isRazorpay
+                            ? 'bg-indigo-50 text-indigo-700'
+                            : 'bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        <CreditCard className="w-3 h-3 mr-1" />
+                        {isRazorpay ? 'RAZORPAY PAID' : o.payment_method || 'COD'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span
+                        className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                          o.status === 'COMPLETED' || o.status === 'DELIVERED'
+                            ? 'bg-green-100 text-green-700'
+                            : o.status === 'CANCELLED' || o.status === 'REJECTED'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}
+                      >
+                        {o.status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-gray-500">
+                      {o.created_at
+                        ? new Date(o.created_at).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : 'Just now'}
+                    </td>
+                  </tr>
+                );
+              })}
+              {liveOrders.length === 0 && (
+                <tr>
+                  <td colSpan="7" className="p-8 text-center text-gray-400">
+                    No recent orders yet.
                   </td>
                 </tr>
-              );
-            })}
-            {liveOrders.length === 0 && (
-              <tr>
-                <td colSpan="5" className="p-8 text-center text-gray-400">
-                  No recent orders yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

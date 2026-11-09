@@ -1,14 +1,30 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { ShieldAlert, UserPlus, Trash2, Clock, Loader2, XCircle, ShieldCheck } from 'lucide-react';
+import { ShieldAlert, UserPlus, Trash2, Clock, Loader2, XCircle, ShieldCheck, RefreshCw } from 'lucide-react';
 import api from '../config/api';
 
 export default function Team() {
   const { user } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('MEMBERS');
-  const [team, setTeam] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(true);
+
+  const [team, setTeam] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminTeamCache') || '{}');
+      return Array.isArray(cached.team) ? cached.team : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [logs, setLogs] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminTeamCache') || '{}');
+      return Array.isArray(cached.logs) ? cached.logs : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -17,26 +33,30 @@ export default function Team() {
     roleType: 'FIELD_ADMIN'
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (user?.role_type !== 'SUPER_ADMIN') return;
     try {
+      setIsSyncing(true);
       const [teamRes, logsRes] = await Promise.all([
         api.get('/admin/team'),
         api.get('/admin/audit-logs')
       ]);
-      setTeam(teamRes.data || []);
-      setLogs(logsRes.data || []);
+      const nextTeam = teamRes.data || [];
+      const nextLogs = logsRes.data || [];
+
+      setTeam(nextTeam);
+      setLogs(nextLogs);
+      localStorage.setItem('adminTeamCache', JSON.stringify({ team: nextTeam, logs: nextLogs }));
     } catch (err) {
       console.error('Failed to fetch Super Admin team data', err);
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, [user?.role_type]);
 
   useEffect(() => {
-    if (user?.role_type === 'SUPER_ADMIN') {
-      fetchData();
-    }
-  }, [user]);
+    fetchData();
+  }, [fetchData]);
 
   const handleAddAdmin = async (e) => {
     e.preventDefault();
@@ -76,14 +96,6 @@ export default function Team() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center mt-20">
-        <Loader2 className="w-10 h-10 animate-spin text-brand" />
-      </div>
-    );
-  }
-
   const roleColors = {
     SUPER_ADMIN: 'bg-purple-100 text-purple-700 border-purple-200',
     FINANCE_ADMIN: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -94,18 +106,32 @@ export default function Team() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Super Admin Security & Team</h2>
-          <p className="text-gray-500">
-            Manage admin privileges and monitor platform audit logs.
-          </p>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-gray-800">Super Admin Security & Team</h2>
+            {isSyncing && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+                Syncing...
+              </span>
+            )}
+          </div>
+          <p className="text-gray-500">Manage admin privileges and monitor platform audit logs.</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center px-4 py-2 bg-dark text-white rounded-lg hover:bg-dark/90 transition-colors cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4 mr-2" />
-          Assign Admin Privileges
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchData}
+            title="Refresh Team & Logs"
+            className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-600 cursor-pointer transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center px-4 py-2 bg-dark text-white rounded-xl hover:bg-dark/90 transition-colors cursor-pointer text-sm font-semibold"
+          >
+            <UserPlus className="w-4 h-4 mr-2" />
+            Assign Admin Privileges
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -130,7 +156,7 @@ export default function Team() {
           }`}
         >
           <Clock className="w-4 h-4 mr-2" />
-          Audit Logs
+          Audit Logs ({logs.length})
         </button>
       </div>
 
@@ -142,7 +168,7 @@ export default function Team() {
                 <th className="p-4 font-medium">Admin Info</th>
                 <th className="p-4 font-medium">Contact</th>
                 <th className="p-4 font-medium">Clearance Level</th>
-                <th className="p-4 font-medium">Actions</th>
+                <th className="p-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -153,13 +179,13 @@ export default function Team() {
                   <td className="p-4">
                     <span
                       className={`px-2 py-1 rounded border text-xs font-semibold ${
-                        roleColors[member.role_type]
+                        roleColors[member.role_type] || 'bg-gray-100 text-gray-700'
                       }`}
                     >
-                      {member.role_type.replace('_', ' ')}
+                      {member.role_type ? member.role_type.replace('_', ' ') : 'ADMIN'}
                     </span>
                   </td>
-                  <td className="p-4">
+                  <td className="p-4 text-right">
                     {member.id !== user.id ? (
                       <button
                         onClick={() => handleRevoke(member.id, member.full_name)}
@@ -199,7 +225,7 @@ export default function Team() {
                     <td className="p-4">
                       <div className="font-medium text-gray-800">{log.admin_name}</div>
                       <div className="text-xs text-gray-400">
-                        {log.admin_role.replace('_', ' ')}
+                        {log.admin_role ? log.admin_role.replace('_', ' ') : ''}
                       </div>
                     </td>
                     <td className="p-4 font-mono text-xs text-blue-600">{log.action}</td>

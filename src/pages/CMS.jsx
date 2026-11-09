@@ -1,25 +1,67 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Image, LayoutGrid, Plus, Trash2, Edit, Loader2, XCircle,
+  Image, LayoutGrid, Plus, Trash2, Edit, XCircle,
   Upload, MapPin, Undo2, RotateCcw, Save, Navigation, CheckCircle2, Check
 } from 'lucide-react';
 import api from '../config/api';
 
+const normalizeZones = (rawPoly) => {
+  if (!Array.isArray(rawPoly) || rawPoly.length === 0) return [];
+  if (Array.isArray(rawPoly[0]) && Array.isArray(rawPoly[0][0])) {
+    return rawPoly;
+  }
+  if (rawPoly.length >= 3) {
+    return [rawPoly];
+  }
+  return [];
+};
+
 export default function CMS() {
   const [activeTab, setActiveTab] = useState('BANNERS');
-  const [loading, setLoading] = useState(true);
-  const [banners, setBanners] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [isSyncing, setIsSyncing] = useState(true);
+
+  const [banners, setBanners] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminCmsCache') || '{}');
+      return Array.isArray(cached.banners) ? cached.banners : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [categories, setCategories] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminCmsCache') || '{}');
+      return Array.isArray(cached.categories) ? cached.categories : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Modal State
   const [modalType, setModalType] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({});
+  const [savingContent, setSavingContent] = useState(false);
 
   // MULTI-POLYGON GEOFENCE STATE
-  const [savedZones, setSavedZones] = useState([]);
+  const [savedZones, setSavedZones] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminCmsCache') || '{}');
+      return normalizeZones(cached.service_polygon);
+    } catch {
+      return [];
+    }
+  });
   const [draftZone, setDraftZone] = useState([]);
-  const [enforceGeofence, setEnforceGeofence] = useState(false);
+  const [enforceGeofence, setEnforceGeofence] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminCmsCache') || '{}');
+      return Boolean(cached.enforce_geofence);
+    } catch {
+      return false;
+    }
+  });
   const [savingGeofence, setSavingGeofence] = useState(false);
 
   const [testPin, setTestPin] = useState(null);
@@ -38,8 +80,9 @@ export default function CMS() {
     testModeRef.current = testMode;
   }, [testMode]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
+      setIsSyncing(true);
       const [bannersRes, categoriesRes, geofenceRes] = await Promise.all([
         api.get('/admin/banners'),
         api.get('/admin/categories'),
@@ -47,29 +90,37 @@ export default function CMS() {
           data: { service_polygon: [], enforce_geofence: false }
         }))
       ]);
-      setBanners(bannersRes.data || []);
-      setCategories(categoriesRes.data || []);
 
+      const nextBanners = bannersRes.data || [];
+      const nextCategories = categoriesRes.data || [];
       const rawPoly = geofenceRes.data?.service_polygon || [];
-      if (rawPoly.length > 0 && Array.isArray(rawPoly[0]) && Array.isArray(rawPoly[0][0])) {
-        setSavedZones(rawPoly);
-      } else if (rawPoly.length >= 3) {
-        setSavedZones([rawPoly]);
-      } else {
-        setSavedZones([]);
-      }
+      const nextZones = normalizeZones(rawPoly);
+      const nextEnforce = Boolean(geofenceRes.data?.enforce_geofence);
 
-      setEnforceGeofence(Boolean(geofenceRes.data?.enforce_geofence));
+      setBanners(nextBanners);
+      setCategories(nextCategories);
+      setSavedZones(nextZones);
+      setEnforceGeofence(nextEnforce);
+
+      localStorage.setItem(
+        'adminCmsCache',
+        JSON.stringify({
+          banners: nextBanners,
+          categories: nextCategories,
+          service_polygon: nextZones,
+          enforce_geofence: nextEnforce
+        })
+      );
     } catch (err) {
       console.error('Failed to fetch CMS data', err);
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const ensureLeafletLoaded = () => {
     return new Promise((resolve) => {
@@ -159,7 +210,7 @@ export default function CMS() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab]);
+  }, [activeTab, savedZones]);
 
   useEffect(() => {
     if (testPin?.needsCheck) {
@@ -308,6 +359,7 @@ export default function CMS() {
         setSavedZones(allFinalZones);
         setDraftZone([]);
       }
+      fetchData();
       alert('Multi-polygon service boundaries saved and updated live across all apps!');
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to save service boundary.');
@@ -323,31 +375,43 @@ export default function CMS() {
       let popupData = { popupTitle: '', popupDescription: '', popupImageUrl: '' };
       if (item?.redirect_type === 'BOTTOM_SHEET_POPUP' && item?.redirect_value) {
         try {
-          popupData = JSON.parse(item.redirect_value);
+          const parsed =
+            typeof item.redirect_value === 'string'
+              ? JSON.parse(item.redirect_value)
+              : item.redirect_value;
+          popupData = {
+            popupTitle: parsed?.popupTitle || '',
+            popupDescription: parsed?.popupDescription || '',
+            popupImageUrl: parsed?.popupImageUrl || ''
+          };
         } catch (e) {
-          console.error('Failed to parse popup JSON');
+          console.error('Failed to parse popup JSON', e);
         }
       }
       setFormData(
-        item || {
-          title: '',
-          image_url: '',
-          redirect_type: 'NONE',
-          redirect_value: '',
-          sort_order: 0,
-          is_active: true,
-          ...popupData
-        }
+        item
+          ? { ...item, ...popupData }
+          : {
+              title: '',
+              image_url: '',
+              redirect_type: 'NONE',
+              redirect_value: '',
+              sort_order: 0,
+              is_active: true,
+              ...popupData
+            }
       );
     } else {
       setFormData(
-        item || {
-          name: '',
-          search_query: '',
-          image_url: '',
-          sort_order: 0,
-          is_active: true
-        }
+        item
+          ? { ...item }
+          : {
+              name: '',
+              search_query: '',
+              image_url: '',
+              sort_order: 0,
+              is_active: true
+            }
       );
     }
   };
@@ -373,7 +437,7 @@ export default function CMS() {
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData({ ...formData, image_url: reader.result });
+        setFormData((prev) => ({ ...prev, image_url: reader.result }));
       };
       reader.readAsDataURL(file);
     }
@@ -387,6 +451,7 @@ export default function CMS() {
     }
 
     const endpoint = modalType === 'BANNER' ? '/admin/banners' : '/admin/categories';
+    setSavingContent(true);
     try {
       if (editingId) {
         await api.put(`${endpoint}/${editingId}`, formData);
@@ -396,7 +461,9 @@ export default function CMS() {
       setModalType(null);
       fetchData();
     } catch (err) {
-      alert('Failed to save changes.');
+      alert(err.response?.data?.error || 'Failed to save changes.');
+    } finally {
+      setSavingContent(false);
     }
   };
 
@@ -421,26 +488,25 @@ export default function CMS() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center mt-20">
-        <Loader2 className="w-10 h-10 animate-spin text-brand" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">App CMS & Geofence Manager</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-gray-800">App CMS & Geofence Manager</h2>
+            {isSyncing && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+                Syncing...
+              </span>
+            )}
+          </div>
           <p className="text-gray-500">
             Control customer app banners, categories, and your exact multi-zone delivery boundaries.
           </p>
         </div>
         {activeTab !== 'BOUNDARY' && (
           <button
-            onClick={() => openModal(activeTab.slice(0, -1))}
+            onClick={() => openModal(activeTab === 'BANNERS' ? 'BANNER' : 'CATEGORY')}
             className="flex items-center px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4 mr-2" /> Add {activeTab === 'BANNERS' ? 'Banner' : 'Category'}
@@ -457,7 +523,7 @@ export default function CMS() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <Image className="w-4 h-4 mr-2" /> App Banners
+          <Image className="w-4 h-4 mr-2" /> App Banners ({banners.length})
         </button>
         <button
           onClick={() => setActiveTab('CATEGORIES')}
@@ -467,7 +533,7 @@ export default function CMS() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <LayoutGrid className="w-4 h-4 mr-2" /> Horizontal Categories
+          <LayoutGrid className="w-4 h-4 mr-2" /> Horizontal Categories ({categories.length})
         </button>
         <button
           onClick={() => setActiveTab('BOUNDARY')}
@@ -809,7 +875,7 @@ export default function CMS() {
                     </label>
                     <input
                       type="text"
-                      value={formData.title}
+                      value={formData.title || ''}
                       onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
                       placeholder="e.g. Summer Sale"
@@ -822,7 +888,7 @@ export default function CMS() {
                         Redirect Action
                       </label>
                       <select
-                        value={formData.redirect_type}
+                        value={formData.redirect_type || 'NONE'}
                         onChange={(e) => {
                           const newType = e.target.value;
                           let resetValue = '';
@@ -861,7 +927,7 @@ export default function CMS() {
                           <input
                             type="text"
                             required
-                            value={formData.redirect_value}
+                            value={formData.redirect_value || ''}
                             onChange={(e) =>
                               setFormData({ ...formData, redirect_value: e.target.value })
                             }
@@ -927,7 +993,7 @@ export default function CMS() {
                     <input
                       type="text"
                       required
-                      value={formData.name}
+                      value={formData.name || ''}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
                       placeholder="e.g. Pizzas"
@@ -939,7 +1005,7 @@ export default function CMS() {
                     </label>
                     <input
                       type="text"
-                      value={formData.search_query}
+                      value={formData.search_query || ''}
                       onChange={(e) => setFormData({ ...formData, search_query: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
                       placeholder="e.g. pizza"
@@ -954,7 +1020,7 @@ export default function CMS() {
                   <input
                     type="number"
                     required
-                    value={formData.sort_order}
+                    value={formData.sort_order ?? 0}
                     onChange={(e) =>
                       setFormData({ ...formData, sort_order: parseInt(e.target.value || '0', 10) })
                     }
@@ -965,7 +1031,7 @@ export default function CMS() {
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={formData.is_active}
+                      checked={Boolean(formData.is_active)}
                       onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                       className="w-5 h-5 text-brand rounded focus:ring-brand"
                     />
@@ -984,9 +1050,10 @@ export default function CMS() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 cursor-pointer font-medium shadow-sm"
+                  disabled={savingContent}
+                  className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 disabled:opacity-50 cursor-pointer font-medium shadow-sm"
                 >
-                  Save Content
+                  {savingContent ? 'Saving...' : 'Save Content'}
                 </button>
               </div>
             </form>

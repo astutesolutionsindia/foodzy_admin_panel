@@ -1,5 +1,6 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
+import { initSocket } from '../config/socket';
 import {
   Store,
   Bike,
@@ -7,7 +8,6 @@ import {
   Crown,
   Sparkles,
   Search,
-  Loader2,
   CheckCircle,
   XCircle,
   Clock,
@@ -24,14 +24,45 @@ import api from '../config/api';
 export default function Directory() {
   const { user } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('RESTAURANTS');
-  const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [promoFilter, setPromoFilter] = useState('ALL');
 
-  const [restaurants, setRestaurants] = useState([]);
-  const [riders, setRiders] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [promotions, setPromotions] = useState([]);
+  const [restaurants, setRestaurants] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminDirectoryCache') || '{}');
+      return Array.isArray(cached.restaurants) ? cached.restaurants : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [riders, setRiders] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminDirectoryCache') || '{}');
+      return Array.isArray(cached.riders) ? cached.riders : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [customers, setCustomers] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminDirectoryCache') || '{}');
+      return Array.isArray(cached.customers) ? cached.customers : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [promotions, setPromotions] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminDirectoryCache') || '{}');
+      return Array.isArray(cached.promotions) ? cached.promotions : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Restaurant Ranking / Commission Edit Modal
   const [editingRestaurant, setEditingRestaurant] = useState(null);
@@ -69,28 +100,60 @@ export default function Directory() {
     auto_activate: true
   });
 
-  const fetchDirectoryData = async () => {
+  const fetchDirectoryData = useCallback(async () => {
     try {
+      setIsSyncing(true);
       const [restRes, ridersRes, custRes, promoRes] = await Promise.all([
         api.get('/admin/restaurants'),
         api.get('/admin/riders'),
         api.get('/admin/customers'),
         api.get('/admin/promotions').catch(() => ({ data: [] }))
       ]);
-      setRestaurants(restRes.data || []);
-      setRiders(ridersRes.data || []);
-      setCustomers(custRes.data || []);
-      setPromotions(promoRes.data || []);
+
+      const nextRestaurants = restRes.data || [];
+      const nextRiders = ridersRes.data || [];
+      const nextCustomers = custRes.data || [];
+      const nextPromotions = promoRes.data || [];
+
+      setRestaurants(nextRestaurants);
+      setRiders(nextRiders);
+      setCustomers(nextCustomers);
+      setPromotions(nextPromotions);
+
+      localStorage.setItem(
+        'adminDirectoryCache',
+        JSON.stringify({
+          restaurants: nextRestaurants,
+          riders: nextRiders,
+          customers: nextCustomers,
+          promotions: nextPromotions
+        })
+      );
     } catch (err) {
       console.error('Failed to fetch directory data:', err);
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDirectoryData();
-  }, []);
+
+    const socket = initSocket();
+    const handleRefresh = () => fetchDirectoryData();
+
+    if (socket) {
+      socket.on('kycQueueUpdated', handleRefresh);
+      socket.on('orderStatusChanged', handleRefresh);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('kycQueueUpdated', handleRefresh);
+        socket.off('orderStatusChanged', handleRefresh);
+      }
+    };
+  }, [fetchDirectoryData]);
 
   const parseShowcaseVideos = (raw) => {
     if (!raw) return [];
@@ -277,14 +340,6 @@ export default function Directory() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center mt-20">
-        <Loader2 className="w-10 h-10 animate-spin text-brand" />
-      </div>
-    );
-  }
-
   const q = searchQuery.toLowerCase();
 
   const filteredRestaurants = restaurants.filter(
@@ -329,7 +384,14 @@ export default function Directory() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Partner & User Directory</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-gray-800">Partner & User Directory</h2>
+            {isSyncing && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+                Syncing...
+              </span>
+            )}
+          </div>
           <p className="text-gray-500">
             Manage restaurants, showcase videos, riders, customers, and Super Admin paid ranking promotions.
           </p>
@@ -466,7 +528,7 @@ export default function Directory() {
                           className={`px-2 py-1 rounded text-xs font-semibold ${
                             r.status === 'ACTIVE'
                               ? 'bg-green-100 text-green-700'
-                              : r.status === 'SUSPENDED'
+                              : r.status === 'SUSPENDED' || r.status === 'REJECTED'
                               ? 'bg-red-100 text-red-700'
                               : 'bg-yellow-100 text-yellow-700'
                           }`}
@@ -1317,6 +1379,7 @@ export default function Directory() {
                 >
                   <option value="ACTIVE">ACTIVE</option>
                   <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
+                  <option value="REJECTED">REJECTED</option>
                   <option value="SUSPENDED">SUSPENDED</option>
                 </select>
               </div>

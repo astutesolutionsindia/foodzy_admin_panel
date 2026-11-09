@@ -1,20 +1,53 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
+import { initSocket } from '../config/socket';
 import {
-  Settings, Ticket, BookOpen, Wallet, ShieldAlert, Loader2,
-  Plus, Edit, Trash2, XCircle, CheckCircle, CreditCard
+  Settings, Ticket, BookOpen, Wallet, ShieldAlert,
+  Plus, Edit, Trash2, XCircle, CheckCircle, CreditCard, RefreshCw
 } from 'lucide-react';
 import api from '../config/api';
 
 export default function Finance() {
   const { user } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('SETTINGS');
-  const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
 
-  const [settings, setSettings] = useState({});
-  const [coupons, setCoupons] = useState([]);
-  const [ledger, setLedger] = useState({ restaurantLedger: [], riderLedger: [] });
-  const [payouts, setPayouts] = useState([]);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminFinanceCache') || '{}');
+      return cached.settings || {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [coupons, setCoupons] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminFinanceCache') || '{}');
+      return Array.isArray(cached.coupons) ? cached.coupons : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [ledger, setLedger] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminFinanceCache') || '{}');
+      return cached.ledger || { restaurantLedger: [], riderLedger: [] };
+    } catch {
+      return { restaurantLedger: [], riderLedger: [] };
+    }
+  });
+
+  const [payouts, setPayouts] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('adminFinanceCache') || '{}');
+      return Array.isArray(cached.payouts) ? cached.payouts : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [editingCouponId, setEditingCouponId] = useState(null);
@@ -29,42 +62,76 @@ export default function Finance() {
     is_active: true
   });
 
-  const fetchFinanceData = async () => {
+  const fetchFinanceData = useCallback(async () => {
+    if (!['FINANCE_ADMIN', 'SUPER_ADMIN'].includes(user?.role_type)) return;
     try {
+      setIsSyncing(true);
       const [settingsRes, couponsRes, ledgerRes, payoutsRes] = await Promise.all([
         api.get('/admin/finance/settings'),
         api.get('/admin/coupons'),
         api.get('/admin/finance/ledger'),
         api.get('/admin/finance/payouts').catch(() => ({ data: [] }))
       ]);
-      setSettings(settingsRes.data || {});
-      setCoupons(couponsRes.data || []);
-      setLedger({
+
+      const nextSettings = settingsRes.data || {};
+      const nextCoupons = couponsRes.data || [];
+      const nextLedger = {
         restaurantLedger: ledgerRes.data?.restaurantLedger || [],
         riderLedger: ledgerRes.data?.riderLedger || []
-      });
-      setPayouts(payoutsRes.data || []);
+      };
+      const nextPayouts = payoutsRes.data || [];
+
+      setSettings(nextSettings);
+      setCoupons(nextCoupons);
+      setLedger(nextLedger);
+      setPayouts(nextPayouts);
+
+      localStorage.setItem(
+        'adminFinanceCache',
+        JSON.stringify({
+          settings: nextSettings,
+          coupons: nextCoupons,
+          ledger: nextLedger,
+          payouts: nextPayouts
+        })
+      );
     } catch (err) {
       console.error('Failed to fetch finance data', err);
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, [user?.role_type]);
 
   useEffect(() => {
-    if (['FINANCE_ADMIN', 'SUPER_ADMIN'].includes(user?.role_type)) {
-      fetchFinanceData();
+    fetchFinanceData();
+
+    const socket = initSocket();
+    const handleRefresh = () => fetchFinanceData();
+
+    if (socket) {
+      socket.on('payoutStatusUpdated', handleRefresh);
+      socket.on('orderStatusChanged', handleRefresh);
     }
-  }, [user]);
+
+    return () => {
+      if (socket) {
+        socket.off('payoutStatusUpdated', handleRefresh);
+        socket.off('orderStatusChanged', handleRefresh);
+      }
+    };
+  }, [fetchFinanceData]);
 
   const handleSettingsSave = async (e) => {
     e.preventDefault();
+    setSavingSettings(true);
     try {
       await api.put('/admin/finance/settings', settings);
       alert('Platform financial & Razorpay gateway settings saved successfully.');
       fetchFinanceData();
     } catch (err) {
       alert('Failed to save settings.');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -73,6 +140,7 @@ export default function Finance() {
     if (coupon) {
       setCouponForm({
         ...coupon,
+        max_discount: coupon.max_discount ?? '',
         expiry_date: coupon.expiry_date
           ? new Date(coupon.expiry_date).toISOString().split('T')[0]
           : ''
@@ -137,7 +205,7 @@ export default function Finance() {
   };
 
   const handleRejectPayout = async (id) => {
-    const reason = prompt('Enter reason for rejecting this withdrawal request:');
+    const reason = window.prompt('Enter reason for rejecting this withdrawal request:');
     if (reason === null) return;
     try {
       await api.put(`/admin/finance/payouts/${id}/reject`, { reason });
@@ -157,21 +225,32 @@ export default function Finance() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center mt-20">
-        <Loader2 className="w-10 h-10 animate-spin text-brand" />
-      </div>
-    );
-  }
+  const pendingPayoutsCount = payouts.filter((p) => p.status === 'PENDING').length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800">Finance & Razorpay Console</h2>
-        <p className="text-gray-500">
-          Manage platform taxation, Razorpay gateway keys, dynamic rider distance pay, coupons, and payouts.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-gray-800">Finance & Razorpay Console</h2>
+            {isSyncing && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+                Syncing...
+              </span>
+            )}
+          </div>
+          <p className="text-gray-500">
+            Manage platform taxation, 5-line-item checkout fees, Razorpay gateway keys, coupons, and partner payouts.
+          </p>
+        </div>
+
+        <button
+          onClick={fetchFinanceData}
+          title="Refresh Financial Data"
+          className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-600 cursor-pointer transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
+        </button>
       </div>
 
       <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
@@ -193,7 +272,7 @@ export default function Finance() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <Ticket className="w-4 h-4 mr-2" /> Promo Codes
+          <Ticket className="w-4 h-4 mr-2" /> Promo Codes ({coupons.length})
         </button>
         <button
           onClick={() => setActiveTab('LEDGER')}
@@ -214,9 +293,9 @@ export default function Finance() {
           }`}
         >
           <Wallet className="w-4 h-4 mr-2" /> Payout Requests
-          {payouts.filter((p) => p.status === 'PENDING').length > 0 && (
+          {pendingPayoutsCount > 0 && (
             <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-              {payouts.filter((p) => p.status === 'PENDING').length}
+              {pendingPayoutsCount}
             </span>
           )}
         </button>
@@ -226,34 +305,80 @@ export default function Finance() {
         {activeTab === 'SETTINGS' && (
           <form onSubmit={handleSettingsSave} className="p-6 max-w-3xl space-y-6">
             <h3 className="text-lg font-bold text-gray-800 border-b pb-2">
-              Global Platform Settings
+              Global Platform & 5-Line-Item Checkout Settings
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Default Platform Commission (%)
+                  Default Restaurant Commission (%)
                 </label>
                 <input
                   type="number"
                   required
-                  value={settings.default_commission_pct || ''}
+                  value={settings.default_commission_pct ?? 20}
                   onChange={(e) =>
                     setSettings({ ...settings, default_commission_pct: e.target.value })
                   }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Can be overridden per-restaurant in directory.
+                  Can be overridden per-restaurant in Directory.
                 </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Base Delivery Fee (Customer Pays ₹)
+                  Food GST (% on Original Food Cost)
                 </label>
                 <input
                   type="number"
                   required
-                  value={settings.base_delivery_fee || ''}
+                  value={settings.food_gst_pct ?? 5}
+                  onChange={(e) => setSettings({ ...settings, food_gst_pct: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Food Platform Fee (% on Original Food Cost)
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={settings.food_platform_fee_pct ?? 5}
+                  onChange={(e) =>
+                    setSettings({ ...settings, food_platform_fee_pct: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Line item #3 on customer checkout bill (Default: 5%).
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Delivery Platform Fee (% on Rider Payout)
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={settings.delivery_platform_fee_pct ?? 10}
+                  onChange={(e) =>
+                    setSettings({ ...settings, delivery_platform_fee_pct: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Added to Rider Payout in Delivery Charges (Default: 10%).
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Base Delivery Fee Fallback (₹)
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={settings.base_delivery_fee ?? 40}
                   onChange={(e) =>
                     setSettings({ ...settings, base_delivery_fee: e.target.value })
                   }
@@ -261,23 +386,13 @@ export default function Finance() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Food GST (%)</label>
-                <input
-                  type="number"
-                  required
-                  value={settings.food_gst_pct || ''}
-                  onChange={(e) => setSettings({ ...settings, food_gst_pct: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rider Uniform Fee Requirement (₹)
+                  Rider Onboarding / Uniform Fee (₹)
                 </label>
                 <input
                   type="number"
                   required
-                  value={settings.uniform_fee_amount || ''}
+                  value={settings.uniform_fee_amount ?? 500}
                   onChange={(e) =>
                     setSettings({ ...settings, uniform_fee_amount: e.target.value })
                   }
@@ -287,7 +402,7 @@ export default function Finance() {
             </div>
 
             <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mt-8">
-              Dynamic Rider Pay Configuration
+              Dynamic Rider Road-Distance Pay (OSRM)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -297,12 +412,12 @@ export default function Finance() {
                 <input
                   type="number"
                   required
-                  value={settings.rider_base_fee || ''}
+                  value={settings.rider_base_fee ?? 30}
                   onChange={(e) => setSettings({ ...settings, rider_base_fee: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Fixed amount granted upon successful pickup.
+                  Fixed base payout per order (Default: ₹30).
                 </p>
               </div>
               <div>
@@ -312,14 +427,14 @@ export default function Finance() {
                 <input
                   type="number"
                   required
-                  value={settings.rider_per_km_fee || ''}
+                  value={settings.rider_per_km_fee ?? 10}
                   onChange={(e) =>
                     setSettings({ ...settings, rider_per_km_fee: e.target.value })
                   }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Calculated via Haversine distance between Restaurant & Customer.
+                  Multiplied by exact J&K OSRM road distance (Default: ₹10/km).
                 </p>
               </div>
             </div>
@@ -368,9 +483,10 @@ export default function Finance() {
 
             <button
               type="submit"
-              className="px-6 py-2.5 bg-brand text-white rounded-xl hover:bg-brand/90 font-semibold cursor-pointer"
+              disabled={savingSettings}
+              className="px-6 py-2.5 bg-brand text-white rounded-xl hover:bg-brand/90 disabled:opacity-50 font-semibold cursor-pointer"
             >
-              Save Financial & Gateway Settings
+              {savingSettings ? 'Saving Settings...' : 'Save Financial & Gateway Settings'}
             </button>
           </form>
         )}
@@ -448,6 +564,13 @@ export default function Finance() {
                     </td>
                   </tr>
                 ))}
+                {coupons.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="p-8 text-center text-gray-400">
+                      No promo codes created yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -467,29 +590,47 @@ export default function Finance() {
                     <th className="p-4 font-medium">Gross Sales</th>
                     <th className="p-4 font-medium text-red-600">Platform Comm.</th>
                     <th className="p-4 font-medium text-purple-600">GST Holding</th>
+                    <th className="p-4 font-medium text-gray-500">Settled So Far</th>
                     <th className="p-4 font-medium text-green-600">Active Payable Debt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {ledger.restaurantLedger.map((r) => (
-                    <tr key={r.restaurant_id} className="hover:bg-gray-50/50">
-                      <td className="p-4 font-medium text-gray-800">
-                        {r.restaurant_name}{' '}
-                        <span className="text-xs text-gray-400 font-normal ml-2">
-                          ({r.completed_orders} orders)
-                        </span>
-                      </td>
-                      <td className="p-4">₹{r.gross_sales}</td>
-                      <td className="p-4 text-red-600">
-                        -₹{r.platform_commission}{' '}
-                        <span className="text-xs">({r.effective_commission_pct}%)</span>
-                      </td>
-                      <td className="p-4 text-purple-600">-₹{r.gst_collected}</td>
-                      <td className="p-4 font-bold text-green-600">
-                        ₹{r.net_restaurant_payout}
+                  {ledger.restaurantLedger.map((r) => {
+                    const gross = Number(r.gross_sales || 0);
+                    const comm = Number(r.platform_commission || 0);
+                    const gst = Number(r.gst_collected || 0);
+                    const settled = Number(r.total_settled || 0);
+                    const payable =
+                      r.net_restaurant_payout !== undefined
+                        ? Number(r.net_restaurant_payout)
+                        : Math.max(0, gross - comm - gst - settled);
+
+                    return (
+                      <tr key={r.restaurant_id} className="hover:bg-gray-50/50">
+                        <td className="p-4 font-medium text-gray-800">
+                          {r.restaurant_name}{' '}
+                          <span className="text-xs text-gray-400 font-normal ml-2">
+                            ({r.completed_orders || 0} orders)
+                          </span>
+                        </td>
+                        <td className="p-4">₹{gross}</td>
+                        <td className="p-4 text-red-600">
+                          -₹{comm}{' '}
+                          <span className="text-xs">({r.effective_commission_pct || 20}%)</span>
+                        </td>
+                        <td className="p-4 text-purple-600">-₹{gst}</td>
+                        <td className="p-4 text-gray-500">₹{settled}</td>
+                        <td className="p-4 font-bold text-green-600">₹{payable}</td>
+                      </tr>
+                    );
+                  })}
+                  {ledger.restaurantLedger.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="p-8 text-center text-gray-400">
+                        No restaurant ledger entries found.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -502,24 +643,41 @@ export default function Finance() {
                     <th className="p-4 font-medium">Rider Name</th>
                     <th className="p-4 font-medium">Completed Deliveries</th>
                     <th className="p-4 font-medium">Uniform Fee</th>
+                    <th className="p-4 font-medium text-gray-500">Settled So Far</th>
                     <th className="p-4 font-medium text-green-600">Active Payable Debt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {ledger.riderLedger.map((r) => (
-                    <tr key={r.rider_id} className="hover:bg-gray-50/50">
-                      <td className="p-4 font-medium text-gray-800">{r.rider_name}</td>
-                      <td className="p-4">{r.completed_deliveries} deliveries</td>
-                      <td className="p-4">
-                        {r.uniform_fee_paid ? (
-                          <span className="text-green-600 text-xs font-bold">PAID</span>
-                        ) : (
-                          <span className="text-red-500 text-xs font-bold">UNPAID</span>
-                        )}
+                  {ledger.riderLedger.map((r) => {
+                    const settled = Number(r.total_settled || 0);
+                    const due =
+                      r.total_payout_due !== undefined
+                        ? Number(r.total_payout_due)
+                        : Math.max(0, Number(r.gross_earnings || 0) - settled);
+
+                    return (
+                      <tr key={r.rider_id} className="hover:bg-gray-50/50">
+                        <td className="p-4 font-medium text-gray-800">{r.rider_name}</td>
+                        <td className="p-4">{r.completed_deliveries || 0} deliveries</td>
+                        <td className="p-4">
+                          {r.uniform_fee_paid ? (
+                            <span className="text-green-600 text-xs font-bold">PAID</span>
+                          ) : (
+                            <span className="text-red-500 text-xs font-bold">UNPAID</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-gray-500">₹{settled}</td>
+                        <td className="p-4 font-bold text-green-600">₹{due}</td>
+                      </tr>
+                    );
+                  })}
+                  {ledger.riderLedger.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="p-8 text-center text-gray-400">
+                        No rider ledger entries found.
                       </td>
-                      <td className="p-4 font-bold text-green-600">₹{r.total_payout_due}</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -546,7 +704,7 @@ export default function Finance() {
                   </td>
                   <td className="p-4">
                     <div className="font-semibold text-gray-800">{p.partner_name}</div>
-                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                    <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                       <span
                         className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                           p.role_type === 'RIDER'
@@ -572,9 +730,11 @@ export default function Finance() {
                     >
                       {p.status}
                     </span>
-                    {p.status === 'REJECTED' && p.transaction_note && (
+                    {p.transaction_note && (
                       <div
-                        className="text-[10px] text-red-500 mt-1 max-w-[150px] truncate"
+                        className={`text-[10px] mt-1 max-w-[180px] truncate ${
+                          p.status === 'REJECTED' ? 'text-red-500' : 'text-gray-400'
+                        }`}
                         title={p.transaction_note}
                       >
                         {p.transaction_note}
@@ -730,7 +890,7 @@ export default function Finance() {
                 <label className="flex items-center space-x-2 cursor-pointer mt-4">
                   <input
                     type="checkbox"
-                    checked={couponForm.is_active}
+                    checked={Boolean(couponForm.is_active)}
                     onChange={(e) =>
                       setCouponForm({ ...couponForm, is_active: e.target.checked })
                     }

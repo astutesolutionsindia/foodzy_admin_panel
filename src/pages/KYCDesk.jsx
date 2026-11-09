@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, XCircle, FileText, ExternalLink, ShieldCheck } from 'lucide-react';
+import { CheckCircle, XCircle, FileText, ExternalLink, ShieldCheck, Search } from 'lucide-react';
 import api from '../config/api';
 import { initSocket } from '../config/socket';
 
 export default function KYCDesk() {
   const [activeTab, setActiveTab] = useState('RESTAURANTS');
-  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, ACTIVE/APPROVED, REJECTED
-  
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, ACTIVE, REJECTED
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [data, setData] = useState(() => {
     try {
       const cached = localStorage.getItem('adminKycCache');
@@ -23,17 +24,28 @@ export default function KYCDesk() {
   const fetchKycQueue = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await api.get(`/api/admin/kyc/pending?status=${statusFilter}`);
+      // Uses /admin/kyc/pending (since api.js baseURL already ends with /api)
+      // Passes both all=true and status=ALL so all statuses are fetched & cached
+      const res = await api.get('/admin/kyc/pending?all=true&status=ALL');
       if (res.data) {
-        setData(res.data);
-        localStorage.setItem('adminKycCache', JSON.stringify(res.data));
+        setData({
+          restaurants: res.data.restaurants || [],
+          riders: res.data.riders || []
+        });
+        localStorage.setItem(
+          'adminKycCache',
+          JSON.stringify({
+            restaurants: res.data.restaurants || [],
+            riders: res.data.riders || []
+          })
+        );
       }
     } catch (err) {
       console.error('Failed to fetch KYC queue:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     fetchKycQueue();
@@ -50,7 +62,8 @@ export default function KYCDesk() {
 
   const handleDecision = async (type, id, decision, customReason = '') => {
     try {
-      const endpoint = type === 'RESTAURANT' ? `/api/admin/kyc/restaurant/${id}` : `/api/admin/kyc/rider/${id}`;
+      const endpoint =
+        type === 'RESTAURANT' ? `/admin/kyc/restaurant/${id}` : `/admin/kyc/rider/${id}`;
       await api.put(endpoint, {
         decision,
         rejectionReason: customReason || 'Documents unclear or invalid'
@@ -64,7 +77,11 @@ export default function KYCDesk() {
 
   const renderDocButton = (title, url) => {
     if (!url) {
-      return <span className="text-xs text-gray-400 italic">Not uploaded</span>;
+      return (
+        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-gray-100 text-gray-400 text-xs italic mr-2">
+          {title}: Not uploaded
+        </span>
+      );
     }
     return (
       <button
@@ -78,55 +95,120 @@ export default function KYCDesk() {
     );
   };
 
-  const restaurants = data.restaurants || [];
-  const riders = data.riders || [];
+  const matchesRestaurantStatus = (rest, filter) => {
+    const st = (rest.status || 'PENDING_VERIFICATION').toUpperCase();
+    if (filter === 'ALL') return true;
+    if (filter === 'PENDING') return st === 'PENDING_VERIFICATION' || st === 'PENDING';
+    if (filter === 'ACTIVE') return st === 'ACTIVE' || st === 'APPROVED';
+    if (filter === 'REJECTED') return st === 'REJECTED' || st === 'SUSPENDED';
+    return true;
+  };
+
+  const matchesRiderStatus = (r, filter) => {
+    const st = (r.approval_status || 'PENDING').toUpperCase();
+    if (filter === 'ALL') return true;
+    if (filter === 'PENDING') return st === 'PENDING' || st === 'NOT_SUBMITTED';
+    if (filter === 'ACTIVE') return st === 'ACTIVE' || st === 'APPROVED';
+    if (filter === 'REJECTED') return st === 'REJECTED';
+    return true;
+  };
+
+  const q = searchQuery.toLowerCase();
+  const allRestaurants = data.restaurants || [];
+  const allRiders = data.riders || [];
+
+  const filteredRestaurants = allRestaurants.filter(
+    (rest) =>
+      matchesRestaurantStatus(rest, statusFilter) &&
+      (String(rest.restaurant_name || rest.full_name || '').toLowerCase().includes(q) ||
+        String(rest.phone_number || '').includes(q))
+  );
+
+  const filteredRiders = allRiders.filter(
+    (r) =>
+      matchesRiderStatus(r, statusFilter) &&
+      (String(r.full_name || '').toLowerCase().includes(q) ||
+        String(r.phone_number || '').includes(q))
+  );
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">KYC Verification Desk</h2>
-          <p className="text-gray-500">Review and approve partner FSSAI, License, and vehicle compliance documents</p>
+          <p className="text-gray-500">
+            Review and approve partner FSSAI, License, and vehicle compliance documents
+          </p>
         </div>
-        
-        {/* Entity Tabs */}
-        <div className="flex bg-gray-200/80 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('RESTAURANTS')}
-            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
-              activeTab === 'RESTAURANTS' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            Restaurants ({restaurants.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('RIDERS')}
-            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
-              activeTab === 'RIDERS' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            Riders ({riders.length})
-          </button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search partner name or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand bg-white"
+            />
+          </div>
+
+          {/* Entity Tabs */}
+          <div className="flex bg-gray-200/80 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('RESTAURANTS')}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+                activeTab === 'RESTAURANTS'
+                  ? 'bg-white text-gray-800 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Restaurants ({filteredRestaurants.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('RIDERS')}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+                activeTab === 'RIDERS'
+                  ? 'bg-white text-gray-800 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Riders ({filteredRiders.length})
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Status Filter Pills */}
-      <div className="flex items-center space-x-2 border-b border-gray-200 pb-3">
-        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2">Filter Status:</span>
-        {['ALL', 'PENDING', 'ACTIVE', 'REJECTED'].map((st) => (
-          <button
-            key={st}
-            onClick={() => setStatusFilter(st)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              statusFilter === st
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {st === 'ACTIVE' ? 'APPROVED / ACTIVE' : st}
-          </button>
-        ))}
-        {isLoading && <span className="text-xs text-emerald-600 font-semibold animate-pulse ml-4">Updating list...</span>}
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
+        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2">
+          Filter Status:
+        </span>
+        {['ALL', 'PENDING', 'ACTIVE', 'REJECTED'].map((st) => {
+          const count =
+            activeTab === 'RESTAURANTS'
+              ? allRestaurants.filter((item) => matchesRestaurantStatus(item, st)).length
+              : allRiders.filter((item) => matchesRiderStatus(item, st)).length;
+
+          return (
+            <button
+              key={st}
+              onClick={() => setStatusFilter(st)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                statusFilter === st
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {st === 'ACTIVE' ? 'APPROVED / ACTIVE' : st} ({count})
+            </button>
+          );
+        })}
+        {isLoading && (
+          <span className="text-xs text-emerald-600 font-semibold animate-pulse ml-2">
+            Syncing KYC records...
+          </span>
+        )}
       </div>
 
       {/* Table Section */}
@@ -142,11 +224,15 @@ export default function KYCDesk() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
-              {restaurants.map((rest) => (
+              {filteredRestaurants.map((rest) => (
                 <tr key={rest.id} className="hover:bg-gray-50/50">
                   <td className="p-4">
-                    <p className="font-bold text-gray-800">{rest.restaurant_name || rest.full_name}</p>
-                    <p className="text-xs text-gray-500">{rest.phone_number} • {rest.cuisine || 'General'}</p>
+                    <p className="font-bold text-gray-800">
+                      {rest.restaurant_name || rest.full_name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {rest.phone_number} • {rest.cuisine || 'General'}
+                    </p>
                   </td>
                   <td className="p-4 space-y-1">
                     <div className="flex flex-wrap gap-1">
@@ -167,7 +253,9 @@ export default function KYCDesk() {
                       {rest.status}
                     </span>
                     {rest.rejection_reason && (
-                      <p className="text-[11px] text-red-500 mt-1 max-w-xs">{rest.rejection_reason}</p>
+                      <p className="text-[11px] text-red-500 mt-1 max-w-xs">
+                        {rest.rejection_reason}
+                      </p>
                     )}
                   </td>
                   <td className="p-4">
@@ -183,7 +271,14 @@ export default function KYCDesk() {
                       )}
                       {rest.status !== 'REJECTED' && (
                         <button
-                          onClick={() => setRejectModal({ isOpen: true, type: 'RESTAURANT', id: rest.id, reason: '' })}
+                          onClick={() =>
+                            setRejectModal({
+                              isOpen: true,
+                              type: 'RESTAURANT',
+                              id: rest.id,
+                              reason: ''
+                            })
+                          }
                           className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
                           title="Reject KYC"
                         >
@@ -194,7 +289,7 @@ export default function KYCDesk() {
                   </td>
                 </tr>
               ))}
-              {restaurants.length === 0 && (
+              {filteredRestaurants.length === 0 && (
                 <tr>
                   <td colSpan="4" className="p-8 text-center text-gray-400">
                     No restaurant KYC records found matching filter "{statusFilter}".
@@ -216,7 +311,7 @@ export default function KYCDesk() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
-              {riders.map((r) => (
+              {filteredRiders.map((r) => (
                 <tr key={r.id} className="hover:bg-gray-50/50">
                   <td className="p-4">
                     <p className="font-bold text-gray-800">{r.full_name}</p>
@@ -241,7 +336,9 @@ export default function KYCDesk() {
                       {r.approval_status}
                     </span>
                     {r.rejection_reason && (
-                      <p className="text-[11px] text-red-500 mt-1 max-w-xs">{r.rejection_reason}</p>
+                      <p className="text-[11px] text-red-500 mt-1 max-w-xs">
+                        {r.rejection_reason}
+                      </p>
                     )}
                   </td>
                   <td className="p-4">
@@ -257,7 +354,14 @@ export default function KYCDesk() {
                       )}
                       {r.approval_status !== 'REJECTED' && (
                         <button
-                          onClick={() => setRejectModal({ isOpen: true, type: 'RIDER', id: r.id, reason: '' })}
+                          onClick={() =>
+                            setRejectModal({
+                              isOpen: true,
+                              type: 'RIDER',
+                              id: r.id,
+                              reason: ''
+                            })
+                          }
                           className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
                           title="Reject KYC"
                         >
@@ -268,7 +372,7 @@ export default function KYCDesk() {
                   </td>
                 </tr>
               ))}
-              {riders.length === 0 && (
+              {filteredRiders.length === 0 && (
                 <tr>
                   <td colSpan="4" className="p-8 text-center text-gray-400">
                     No rider KYC records found matching filter "{statusFilter}".
@@ -289,16 +393,32 @@ export default function KYCDesk() {
                 <ShieldCheck className="w-5 h-5 text-emerald-600 mr-2" />
                 {docModal.title}
               </h3>
-              <button
-                onClick={() => setDocModal({ isOpen: false, url: '', title: '' })}
-                className="text-gray-400 hover:text-gray-800 cursor-pointer"
-              >
-                <XCircle className="w-6 h-6" />
-              </button>
+              <div className="flex items-center gap-3">
+                {docModal.url.startsWith('http') && (
+                  <a
+                    href={docModal.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-semibold text-emerald-600 hover:underline flex items-center"
+                  >
+                    Open in new tab <ExternalLink className="w-3.5 h-3.5 ml-1" />
+                  </a>
+                )}
+                <button
+                  onClick={() => setDocModal({ isOpen: false, url: '', title: '' })}
+                  className="text-gray-400 hover:text-gray-800 cursor-pointer"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
             </div>
             <div className="p-4 overflow-auto flex-1 flex justify-center bg-gray-50">
               {docModal.url.includes('application/pdf') || docModal.url.endsWith('.pdf') ? (
-                <iframe src={docModal.url} className="w-full h-[600px] border-0 rounded-lg shadow-sm" />
+                <iframe
+                  src={docModal.url}
+                  title={docModal.title}
+                  className="w-full h-[600px] border-0 rounded-lg shadow-sm"
+                />
               ) : (
                 <img
                   src={docModal.url}
@@ -316,7 +436,9 @@ export default function KYCDesk() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <h3 className="font-bold text-lg text-gray-800">Specify Rejection Reason</h3>
-            <p className="text-xs text-gray-500">Provide feedback to the partner so they can re-upload correct compliance documents.</p>
+            <p className="text-xs text-gray-500">
+              Provide feedback to the partner so they can re-upload correct compliance documents.
+            </p>
             <textarea
               rows="3"
               value={rejectModal.reason}
@@ -332,7 +454,9 @@ export default function KYCDesk() {
                 Cancel
               </button>
               <button
-                onClick={() => handleDecision(rejectModal.type, rejectModal.id, 'REJECTED', rejectModal.reason)}
+                onClick={() =>
+                  handleDecision(rejectModal.type, rejectModal.id, 'REJECTED', rejectModal.reason)
+                }
                 className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-xl font-bold text-sm shadow-md cursor-pointer"
               >
                 Confirm Rejection

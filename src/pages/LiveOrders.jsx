@@ -1,20 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Activity, MapPin, Search, Edit2, XCircle, Loader2,
-  Bike, Store, User, AlertTriangle, CreditCard, KeyRound
+  Activity, MapPin, Search, Edit2, XCircle,
+  Bike, Store, User, AlertTriangle, CreditCard, KeyRound, RefreshCw
 } from 'lucide-react';
-import { initSocket, disconnectSocket } from '../config/socket';
+import { initSocket } from '../config/socket';
 import api from '../config/api';
 
 const TERMINAL_STATUSES = ['COMPLETED', 'DELIVERED', 'CANCELLED', 'REJECTED'];
 
 export default function LiveOrders() {
   const location = useLocation();
-  const [orders, setOrders] = useState([]);
-  const [riders, setRiders] = useState([]);
-  const [loading, setLoading] = useState(true);
 
+  const [orders, setOrders] = useState(() => {
+    try {
+      const cached = localStorage.getItem('adminLiveOrdersCache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [riders, setRiders] = useState(() => {
+    try {
+      const cached = localStorage.getItem('adminRidersListCache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [isSyncing, setIsSyncing] = useState(true);
   const [activeTab, setActiveTab] = useState(
     location.search.includes('stuck') ? 'STUCK' : 'ACTIVE'
   );
@@ -23,34 +39,47 @@ export default function LiveOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [overrideForm, setOverrideForm] = useState({ status: '', riderId: '', note: '' });
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
+      setIsSyncing(true);
       const [ordersRes, ridersRes] = await Promise.all([
         api.get('/admin/orders'),
         api.get('/admin/riders')
       ]);
-      setOrders(ordersRes.data || []);
-      setRiders(
-        (ridersRes.data || []).filter(
-          (r) => r.approval_status === 'ACTIVE' || r.approval_status === 'APPROVED'
-        )
+      const orderList = ordersRes.data || [];
+      const activeRiders = (ridersRes.data || []).filter(
+        (r) => r.approval_status === 'ACTIVE' || r.approval_status === 'APPROVED'
       );
+
+      setOrders(orderList);
+      setRiders(activeRiders);
+      localStorage.setItem('adminLiveOrdersCache', JSON.stringify(orderList));
+      localStorage.setItem('adminRidersListCache', JSON.stringify(activeRiders));
     } catch (err) {
       console.error('Failed to fetch live orders', err);
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchOrders();
 
     const socket = initSocket();
-    socket.on('newIncomingOrder', () => fetchOrders());
-    socket.on('orderStatusChanged', () => fetchOrders());
+    const handleRefresh = () => fetchOrders();
 
-    return () => disconnectSocket();
-  }, []);
+    if (socket) {
+      socket.on('newIncomingOrder', handleRefresh);
+      socket.on('orderStatusChanged', handleRefresh);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('newIncomingOrder', handleRefresh);
+        socket.off('orderStatusChanged', handleRefresh);
+      }
+    };
+  }, [fetchOrders]);
 
   const openOverrideModal = (order) => {
     setSelectedOrder(order);
@@ -78,13 +107,14 @@ export default function LiveOrders() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center mt-20">
-        <Loader2 className="w-10 h-10 animate-spin text-brand" />
-      </div>
-    );
-  }
+  const isOrderStuck = (o) =>
+    ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status) &&
+    !o.rider_id &&
+    Date.now() - new Date(o.created_at).getTime() > 10 * 60 * 1000;
+
+  const activeCount = orders.filter((o) => !TERMINAL_STATUSES.includes(o.status)).length;
+  const stuckCount = orders.filter(isOrderStuck).length;
+  const pastCount = orders.filter((o) => TERMINAL_STATUSES.includes(o.status)).length;
 
   const filteredOrders = orders.filter((o) => {
     const q = searchQuery.toLowerCase();
@@ -97,11 +127,7 @@ export default function LiveOrders() {
     if (activeTab === 'ACTIVE') {
       return !TERMINAL_STATUSES.includes(o.status) && matchesSearch;
     } else if (activeTab === 'STUCK') {
-      const isStuck =
-        ['PENDING', 'ACCEPTED', 'PREPARING', 'READY'].includes(o.status) &&
-        !o.rider_id &&
-        Date.now() - new Date(o.created_at).getTime() > 10 * 60 * 1000;
-      return isStuck && matchesSearch;
+      return isOrderStuck(o) && matchesSearch;
     } else {
       return TERMINAL_STATUSES.includes(o.status) && matchesSearch;
     }
@@ -119,21 +145,37 @@ export default function LiveOrders() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Live Orders Control</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-gray-800">Live Orders Control</h2>
+            {isSyncing && (
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
+                Syncing...
+              </span>
+            )}
+          </div>
           <p className="text-gray-500">
             Monitor dispatch, Razorpay payment status, delivery PINs, and override active deliveries.
           </p>
         </div>
 
-        <div className="relative w-full md:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search Order ID, Customer, Razorpay ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand bg-white"
-          />
+        <div className="flex items-center gap-3">
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search Order ID, Customer, Razorpay ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand bg-white"
+            />
+          </div>
+          <button
+            onClick={fetchOrders}
+            title="Refresh Orders"
+            className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-600 cursor-pointer transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
+          </button>
         </div>
       </div>
 
@@ -146,7 +188,7 @@ export default function LiveOrders() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <Activity className="w-4 h-4 mr-2" /> Active Deliveries
+          <Activity className="w-4 h-4 mr-2" /> Active Deliveries ({activeCount})
         </button>
         <button
           onClick={() => setActiveTab('STUCK')}
@@ -156,7 +198,7 @@ export default function LiveOrders() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <AlertTriangle className="w-4 h-4 mr-2" /> Stuck Orders
+          <AlertTriangle className="w-4 h-4 mr-2" /> Stuck Orders ({stuckCount})
         </button>
         <button
           onClick={() => setActiveTab('PAST')}
@@ -166,7 +208,7 @@ export default function LiveOrders() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <MapPin className="w-4 h-4 mr-2" /> Past Orders
+          <MapPin className="w-4 h-4 mr-2" /> Past Orders ({pastCount})
         </button>
       </div>
 
