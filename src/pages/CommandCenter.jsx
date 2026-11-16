@@ -4,7 +4,7 @@ import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
 import {
   Activity, ShoppingBag, AlertTriangle, DollarSign,
-  Wallet, Bike, CreditCard, RefreshCw, Layers
+  Wallet, Bike, CreditCard, RefreshCw, Layers, UtensilsCrossed
 } from 'lucide-react';
 import api from '../config/api';
 
@@ -20,11 +20,39 @@ const DEFAULT_METRICS = {
   },
   financials: {
     grossMerchandiseValue: 0,
-    totalCommission: 0,
+    pendingPayoutTotal: 0,
+    pendingRestaurantPayout: 0,
+    pendingRiderPayout: 0,
+    totalPlatformFees: 0,
+    monthRestPlatformFee: 0,
+    totalFoodPlatformFee: 0,
+    totalDeliveryPlatformFee: 0,
     totalGst: 0,
-    totalPlatformFees: 0
+    monthFoodGst: 0,
+    monthDeliveryGst: 0,
+    monthPlatformFeeGst: 0
   },
   recentOrders: []
+};
+
+const isSameDayIST = (dateStr) => {
+  if (!dateStr) return true;
+  const d = new Date(dateStr);
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+  return fmt.format(d) === fmt.format(now);
+};
+
+const formatOrderItems = (rawItems) => {
+  if (!rawItems) return 'Standard Meal';
+  let parsed = rawItems;
+  if (typeof rawItems === 'string') {
+    try { parsed = JSON.parse(rawItems); } catch { return rawItems; }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return 'Standard Meal';
+  return parsed
+    .map((it) => `${it.quantity || it.qty || 1}x ${it.name || it.title || 'Item'}`)
+    .join(', ');
 };
 
 export default function CommandCenter() {
@@ -44,7 +72,7 @@ export default function CommandCenter() {
     try {
       const cached = localStorage.getItem('adminOverviewCache');
       const parsed = cached ? JSON.parse(cached) : null;
-      return (parsed?.recentOrders || []).slice(0, 10);
+      return (parsed?.recentOrders || []).filter((o) => isSameDayIST(o.created_at));
     } catch {
       return [];
     }
@@ -58,7 +86,8 @@ export default function CommandCenter() {
       const res = await api.get('/admin/overview');
       if (res.data) {
         setMetrics(res.data);
-        setLiveOrders((res.data.recentOrders || []).slice(0, 10));
+        const todayOnly = (res.data.recentOrders || []).filter((o) => isSameDayIST(o.created_at));
+        setLiveOrders(todayOnly);
         localStorage.setItem('adminOverviewCache', JSON.stringify(res.data));
       }
     } catch (err) {
@@ -73,7 +102,9 @@ export default function CommandCenter() {
 
     const socket = initSocket();
     const handleNewOrder = (order) => {
-      setLiveOrders((prev) => [order, ...prev.filter((o) => o.id !== order.id)].slice(0, 10));
+      if (isSameDayIST(order?.created_at)) {
+        setLiveOrders((prev) => [order, ...prev.filter((o) => o.id !== order.id)]);
+      }
       fetchOverview();
     };
     const handleOrderChange = () => {
@@ -95,22 +126,24 @@ export default function CommandCenter() {
     };
   }, [fetchOverview]);
 
-  const op = metrics?.operational || DEFAULT_METRICS.operational;
-  const fin = metrics?.financials || DEFAULT_METRICS.financials;
+  const op = metrics.operational || DEFAULT_METRICS.operational;
+  const fin = metrics.financials || DEFAULT_METRICS.financials;
+  const currentMonthName = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 
-  const MetricCard = ({ title, value, icon: Icon, colorClass, onClick }) => (
+  const MetricCard = ({ title, value, subtitle, icon: Icon, colorClass, onClick }) => (
     <div
       onClick={onClick}
-      className={`bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center ${
-        onClick ? 'cursor-pointer hover:shadow-md hover:border-brand/30 transition-all' : ''
+      className={`bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-start transition-all ${
+        onClick ? 'cursor-pointer hover:shadow-md hover:border-gray-200 active:scale-[0.99]' : ''
       }`}
     >
-      <div className={`p-4 rounded-xl mr-4 ${colorClass}`}>
+      <div className={`p-4 rounded-xl mr-4 shrink-0 ${colorClass}`}>
         <Icon className="w-6 h-6" />
       </div>
-      <div>
-        <p className="text-sm text-gray-500 font-medium">{title}</p>
-        <p className="text-2xl font-bold text-gray-800">{value ?? 0}</p>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">{title}</p>
+        <p className="text-2xl font-bold text-gray-800 mt-0.5">{value ?? 0}</p>
+        {subtitle && <p className="text-[11px] text-gray-400 font-medium mt-1 truncate">{subtitle}</p>}
       </div>
     </div>
   );
@@ -120,7 +153,7 @@ export default function CommandCenter() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Super Admin Command Center</h2>
-          <p className="text-gray-500">Real-time platform telemetry, Razorpay settlements & dispatch radar</p>
+          <p className="text-gray-500">Real-time platform telemetry, monthly financial pulse & today's live order stream</p>
         </div>
         <div className="flex items-center gap-3">
           {isSyncing && (
@@ -138,11 +171,11 @@ export default function CommandCenter() {
         </div>
       </div>
 
-      {/* Operational Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Active Orders"
           value={op.activeOrdersCount}
+          subtitle="In-flight right now"
           icon={Activity}
           colorClass="bg-blue-50 text-blue-600"
           onClick={() => navigate('/orders')}
@@ -150,6 +183,7 @@ export default function CommandCenter() {
         <MetricCard
           title="Stuck Orders (>10m)"
           value={op.stuckOrdersCount}
+          subtitle="Unassigned > 10 mins"
           icon={AlertTriangle}
           colorClass="bg-red-50 text-red-600"
           onClick={() => navigate('/orders?stuck=true')}
@@ -157,6 +191,7 @@ export default function CommandCenter() {
         <MetricCard
           title="Pending KYC (Rest.)"
           value={op.pendingRestaurantKyc}
+          subtitle="Awaiting verification"
           icon={ShoppingBag}
           colorClass="bg-orange-50 text-orange-600"
           onClick={() => navigate('/kyc')}
@@ -164,41 +199,53 @@ export default function CommandCenter() {
         <MetricCard
           title="Pending KYC (Riders)"
           value={op.pendingRiderKyc}
+          subtitle="Awaiting verification"
           icon={Bike}
           colorClass="bg-yellow-50 text-yellow-600"
           onClick={() => navigate('/kyc')}
         />
       </div>
 
-      {/* Financial Metrics */}
       {user && user.role_type !== 'FIELD_ADMIN' && (
         <>
-          <h3 className="text-lg font-bold text-gray-800 mt-8">Financial Pulse</h3>
+          <div className="flex items-center justify-between mt-8">
+            <h3 className="text-lg font-bold text-gray-800">Financial Pulse ({currentMonthName})</h3>
+            <button
+              onClick={() => navigate('/finance-archive')}
+              className="text-xs font-semibold text-brand hover:underline cursor-pointer"
+            >
+              View Older Months in Financial Archive →
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <MetricCard
-              title="Gross Merchandise Value"
+              title="Gross Merchandise"
               value={`₹${fin.grossMerchandiseValue ?? 0}`}
+              subtitle={`Gross Business (${currentMonthName})`}
               icon={DollarSign}
               colorClass="bg-green-50 text-green-600"
               onClick={() => navigate('/finance')}
             />
             <MetricCard
-              title="Platform Commission"
-              value={`₹${fin.totalCommission ?? 0}`}
+              title="Pending Payout"
+              value={`₹${fin.pendingPayoutTotal ?? fin.totalCommission ?? 0}`}
+              subtitle={`Rest: ₹${fin.pendingRestaurantPayout ?? 0} • Rider: ₹${fin.pendingRiderPayout ?? 0}`}
               icon={Wallet}
               colorClass="bg-emerald-50 text-emerald-600"
               onClick={() => navigate('/finance')}
             />
             <MetricCard
-              title="Platform Fees (5%+10%)"
+              title="Platform Fee"
               value={`₹${fin.totalPlatformFees ?? 0}`}
+              subtitle={`Food: ₹${fin.totalFoodPlatformFee ?? 0} • Rest: ₹${fin.monthRestPlatformFee ?? 0} • Rider: ₹${fin.totalDeliveryPlatformFee ?? 0}`}
               icon={Layers}
               colorClass="bg-indigo-50 text-indigo-600"
               onClick={() => navigate('/finance')}
             />
             <MetricCard
-              title="GST Collected (5%)"
+              title="GST Collected"
               value={`₹${fin.totalGst ?? 0}`}
+              subtitle={`Food: ₹${fin.monthFoodGst ?? 0} • Deliv: ₹${fin.monthDeliveryGst ?? 0} • Fee GST: ₹${fin.monthPlatformFeeGst ?? 0}`}
               icon={DollarSign}
               colorClass="bg-purple-50 text-purple-600"
               onClick={() => navigate('/finance')}
@@ -207,8 +254,16 @@ export default function CommandCenter() {
         </>
       )}
 
-      {/* Live Order Feed */}
-      <h3 className="text-lg font-bold text-gray-800 mt-8">Live Order Stream</h3>
+      <div className="flex items-center justify-between mt-8">
+        <div>
+          <h3 className="text-lg font-bold text-gray-800">Live Order Stream (Today's Orders)</h3>
+          <p className="text-xs text-gray-500">Showing orders placed today ({new Date().toLocaleDateString('en-IN')})</p>
+        </div>
+        <span className="text-xs font-bold px-3 py-1 rounded-full bg-gray-100 text-gray-700">
+          {liveOrders.length} Orders Today
+        </span>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
@@ -217,6 +272,7 @@ export default function CommandCenter() {
                 <th className="p-4 font-medium">Order ID</th>
                 <th className="p-4 font-medium">Customer</th>
                 <th className="p-4 font-medium">Restaurant</th>
+                <th className="p-4 font-medium">Ordered Items</th>
                 <th className="p-4 font-medium">Amount</th>
                 <th className="p-4 font-medium">Payment</th>
                 <th className="p-4 font-medium">Status</th>
@@ -238,6 +294,12 @@ export default function CommandCenter() {
                     <td className="p-4 font-semibold text-gray-800">#FZ-{o.id}</td>
                     <td className="p-4 text-gray-700 font-medium">{o.customer_name || 'Customer'}</td>
                     <td className="p-4 text-gray-600">{o.restaurant_name || 'Foodzy Kitchen'}</td>
+                    <td className="p-4 text-gray-700 max-w-xs truncate" title={formatOrderItems(o.items)}>
+                      <span className="inline-flex items-center gap-1.5 text-xs bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg">
+                        <UtensilsCrossed className="w-3 h-3 text-brand shrink-0" />
+                        <span className="truncate max-w-[220px]">{formatOrderItems(o.items)}</span>
+                      </span>
+                    </td>
                     <td className="p-4 font-bold text-gray-800">₹{o.total_amount}</td>
                     <td className="p-4">
                       <span
@@ -277,8 +339,8 @@ export default function CommandCenter() {
               })}
               {liveOrders.length === 0 && (
                 <tr>
-                  <td colSpan="7" className="p-8 text-center text-gray-400">
-                    No recent orders yet.
+                  <td colSpan="8" className="p-8 text-center text-gray-400">
+                    No orders placed today yet.
                   </td>
                 </tr>
               )}

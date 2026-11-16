@@ -2,14 +2,19 @@ import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
 import {
-  Settings, Ticket, BookOpen, Wallet, ShieldAlert,
-  Plus, Edit, Trash2, XCircle, CheckCircle, CreditCard, RefreshCw
+  Settings, Ticket, BookOpen, Wallet, ShieldAlert, Store, Bike,
+  Plus, Edit, Trash2, XCircle, CheckCircle, RefreshCw, Search, Layers, Percent
 } from 'lucide-react';
 import api from '../config/api';
 
 export default function Finance() {
   const { user } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('SETTINGS');
+  const [ledgerRoleSwitch, setLedgerRoleSwitch] = useState('RESTAURANT');
+  const [payoutRoleSwitch, setPayoutRoleSwitch] = useState('RESTAURANT');
+  const [payoutStatusFilter, setPayoutStatusFilter] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [isSyncing, setIsSyncing] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -61,6 +66,8 @@ export default function Finance() {
     expiry_date: '',
     is_active: true
   });
+
+  const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
 
   const fetchFinanceData = useCallback(async () => {
     if (!['FINANCE_ADMIN', 'SUPER_ADMIN'].includes(user?.role_type)) return;
@@ -126,12 +133,25 @@ export default function Finance() {
     setSavingSettings(true);
     try {
       await api.put('/admin/finance/settings', settings);
-      alert('Platform financial & Razorpay gateway settings saved successfully.');
+      alert('Platform fees, Rider finance, and G.S.T. settings saved successfully!');
       fetchFinanceData();
-    } catch (err) {
+    } catch {
       alert('Failed to save settings.');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleUpdateCustomCommission = async (restId, currentVal) => {
+    const input = window.prompt('Enter custom Restaurant Platform Fee % (leave blank to use global default):', currentVal ?? '');
+    if (input === null) return;
+    try {
+      await api.put(`/admin/finance/restaurants/${restId}/commission`, {
+        custom_commission_pct: input.trim() === '' ? null : Number(input)
+      });
+      fetchFinanceData();
+    } catch {
+      alert('Failed to update restaurant fee %.');
     }
   };
 
@@ -184,22 +204,21 @@ export default function Finance() {
     try {
       await api.delete(`/admin/coupons/${id}`);
       fetchFinanceData();
-    } catch (err) {
+    } catch {
       alert('Failed to delete coupon.');
     }
   };
 
   const handleSettlePayout = async (id, partnerName, amount) => {
-    if (
-      !window.confirm(
-        `Did you transfer ₹${amount} to ${partnerName}'s account?\n\nClicking OK will mark this ledger debt as PAID.`
-      )
-    )
-      return;
+    const note = window.prompt(
+      `Settling ₹${amount} for ${partnerName}. Enter UTR / Bank Transfer Ref (optional):`,
+      'Settled via Bank/UPI Transfer'
+    );
+    if (note === null) return;
     try {
-      await api.put(`/admin/finance/payouts/${id}/settle`);
+      await api.put(`/admin/finance/payouts/${id}/settle`, { transaction_note: note });
       fetchFinanceData();
-    } catch (err) {
+    } catch {
       alert('Failed to settle payout.');
     }
   };
@@ -210,7 +229,7 @@ export default function Finance() {
     try {
       await api.put(`/admin/finance/payouts/${id}/reject`, { reason });
       fetchFinanceData();
-    } catch (err) {
+    } catch {
       alert('Failed to reject payout.');
     }
   };
@@ -219,20 +238,66 @@ export default function Finance() {
     return (
       <div className="flex flex-col items-center justify-center mt-32 text-gray-500">
         <ShieldAlert className="w-16 h-16 text-red-400 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-800">Financial Clearance Required</h2>
-        <p>Your current role ({user?.role_type}) does not permit access to platform ledgers.</p>
+        <h2 className="text-2xl font-bold text-gray-800">Finance Clearance Required</h2>
+        <p>You do not have permission to access the Financial Console.</p>
       </div>
     );
   }
 
-  const pendingPayoutsCount = payouts.filter((p) => p.status === 'PENDING').length;
+  const pendingPayoutCount = payouts.filter((p) => p.status === 'PENDING').length;
+
+  const filteredRestaurantsLedger = (ledger.restaurantLedger || []).filter((r) =>
+    String(r.restaurant_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(r.phone_number || '').includes(searchQuery)
+  );
+
+  const filteredRidersLedger = (ledger.riderLedger || []).filter((r) =>
+    String(r.rider_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(r.phone_number || '').includes(searchQuery)
+  );
+
+  const roleFilteredPayouts = payouts.filter((p) => {
+    if (p.role_type !== payoutRoleSwitch) return false;
+    if (payoutStatusFilter !== 'ALL' && p.status !== payoutStatusFilter) return false;
+    const q = searchQuery.toLowerCase();
+    if (!q) return true;
+    return (
+      String(p.partner_name || '').toLowerCase().includes(q) ||
+      String(p.phone_number || '').includes(q) ||
+      String(p.transaction_note || '').toLowerCase().includes(q)
+    );
+  });
+
+  const partnerPayoutGroups = Object.values(
+    payouts
+      .filter((p) => p.role_type === payoutRoleSwitch)
+      .reduce((acc, p) => {
+        const key = p.user_id;
+        if (!acc[key]) {
+          acc[key] = {
+            user_id: p.user_id,
+            partner_name: p.partner_name,
+            phone_number: p.phone_number,
+            pending_amount: 0,
+            paid_amount: 0,
+            rejected_amount: 0,
+            requests: []
+          };
+        }
+        if (p.status === 'PENDING') acc[key].pending_amount += Number(p.amount || 0);
+        if (p.status === 'PAID') acc[key].paid_amount += Number(p.amount || 0);
+        if (p.status === 'REJECTED') acc[key].rejected_amount += Number(p.amount || 0);
+        acc[key].requests.push(p);
+        return acc;
+      }, {})
+  );
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-gray-800">Finance & Razorpay Console</h2>
+            <h2 className="text-2xl font-bold text-gray-800">Finance Console</h2>
             {isSyncing && (
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 animate-pulse">
                 Syncing...
@@ -240,20 +305,19 @@ export default function Finance() {
             )}
           </div>
           <p className="text-gray-500">
-            Manage platform taxation, 5-line-item checkout fees, Razorpay gateway keys, coupons, and partner payouts.
+            Manage platform fees, rider pay, G.S.T. slabs, promo coupons, partner ledgers, and payouts.
           </p>
         </div>
 
         <button
           onClick={fetchFinanceData}
-          title="Refresh Financial Data"
-          className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-600 cursor-pointer transition-colors"
+          className="p-2.5 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-600 cursor-pointer self-start"
         >
           <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-brand' : ''}`} />
         </button>
       </div>
 
-      <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
+      <div className="flex flex-wrap gap-2 border-b border-gray-200">
         <button
           onClick={() => setActiveTab('SETTINGS')}
           className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${
@@ -262,7 +326,7 @@ export default function Finance() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          <Settings className="w-4 h-4 mr-2" /> Tax, Commissions & Razorpay
+          <Settings className="w-4 h-4 mr-2" /> Tax & Commissions
         </button>
         <button
           onClick={() => setActiveTab('COUPONS')}
@@ -293,388 +357,563 @@ export default function Finance() {
           }`}
         >
           <Wallet className="w-4 h-4 mr-2" /> Payout Requests
-          {pendingPayoutsCount > 0 && (
-            <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-              {pendingPayoutsCount}
+          {pendingPayoutCount > 0 && (
+            <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-red-100 text-red-600 rounded-full">
+              {pendingPayoutCount}
             </span>
           )}
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {activeTab === 'SETTINGS' && (
-          <form onSubmit={handleSettingsSave} className="p-6 max-w-3xl space-y-6">
-            <h3 className="text-lg font-bold text-gray-800 border-b pb-2">
-              Global Platform & 5-Line-Item Checkout Settings
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {activeTab === 'SETTINGS' && (
+        <form onSubmit={handleSettingsSave} className="space-y-6 max-w-5xl">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 pb-4 mb-5 border-b border-gray-100">
+              <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                <Layers className="w-5 h-5" />
+              </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Default Restaurant Commission (%)
+                <h3 className="text-base font-bold text-gray-800">1. Global Platform Fee Setting</h3>
+                <p className="text-xs text-gray-500">Configure platform commission & customer/delivery fee percentages</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Restaurant Platform Fee (% on Restaurant Payout)
                 </label>
                 <input
                   type="number"
-                  required
-                  value={settings.default_commission_pct ?? 20}
-                  onChange={(e) =>
-                    setSettings({ ...settings, default_commission_pct: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  step="0.1"
+                  value={settings.default_commission_pct ?? 5}
+                  onChange={(e) => setSettings({ ...settings, default_commission_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Can be overridden per-restaurant in Directory.
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">Can be overridden per-restaurant in Master Ledger.</p>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Food GST (% on Original Food Cost)
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={settings.food_gst_pct ?? 5}
-                  onChange={(e) => setSettings({ ...settings, food_gst_pct: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Food Platform Fee (% on Original Food Cost)
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={settings.food_platform_fee_pct ?? 5}
-                  onChange={(e) =>
-                    setSettings({ ...settings, food_platform_fee_pct: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Line item #3 on customer checkout bill (Default: 5%).
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-bold text-gray-700 mb-1">
                   Delivery Platform Fee (% on Rider Payout)
                 </label>
                 <input
                   type="number"
-                  required
+                  step="0.1"
                   value={settings.delivery_platform_fee_pct ?? 10}
-                  onChange={(e) =>
-                    setSettings({ ...settings, delivery_platform_fee_pct: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  onChange={(e) => setSettings({ ...settings, delivery_platform_fee_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Added to Rider Payout in Delivery Charges (Default: 10%).
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">Platform margin on delivery charges.</p>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Base Delivery Fee Fallback (₹)
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Food Platform Fee (% on Original Food Cost)
                 </label>
                 <input
                   type="number"
-                  required
-                  value={settings.base_delivery_fee ?? 40}
-                  onChange={(e) =>
-                    setSettings({ ...settings, base_delivery_fee: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  step="0.1"
+                  value={settings.food_platform_fee_pct ?? 5}
+                  onChange={(e) => setSettings({ ...settings, food_platform_fee_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">Applied on customer checkout food subtotal.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 pb-4 mb-5 border-b border-gray-100">
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
+                <Bike className="w-5 h-5" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <h3 className="text-base font-bold text-gray-800">2. Rider Finance</h3>
+                <p className="text-xs text-gray-500">Onboarding fee, base delivery fee (&le; 5 km), and per-km rate (&gt; 5 km)</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
                   Rider Onboarding / Uniform Fee (₹)
                 </label>
                 <input
                   type="number"
-                  required
-                  value={settings.uniform_fee_amount ?? 500}
-                  onChange={(e) =>
-                    setSettings({ ...settings, uniform_fee_amount: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  value={settings.uniform_fee_amount ?? 2000}
+                  onChange={(e) => setSettings({ ...settings, uniform_fee_amount: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">One-time registration & gear fee.</p>
               </div>
-            </div>
 
-            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mt-8">
-              Dynamic Rider Road-Distance Pay (OSRM)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rider Base Fee (₹)
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Delivery Base Fee (₹)
                 </label>
                 <input
                   type="number"
-                  required
+                  step="1"
                   value={settings.rider_base_fee ?? 30}
-                  onChange={(e) => setSettings({ ...settings, rider_base_fee: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      rider_base_fee: e.target.value,
+                      base_delivery_fee: e.target.value
+                    })
+                  }
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Fixed base payout per order (Default: ₹30).
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">Fixed base fee covering the first 5 km.</p>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rider Per-Km Fee (₹/km)
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Delivery Per-Km Fee (₹/km)
                 </label>
                 <input
                   type="number"
-                  required
-                  value={settings.rider_per_km_fee ?? 10}
-                  onChange={(e) =>
-                    setSettings({ ...settings, rider_per_km_fee: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  step="0.5"
+                  value={settings.rider_per_km_fee ?? 5}
+                  onChange={(e) => setSettings({ ...settings, rider_per_km_fee: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Multiplied by exact J&K OSRM road distance (Default: ₹10/km).
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">Added per km beyond 5 km (OSRM road distance).</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 pb-4 mb-5 border-b border-gray-100">
+              <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
+                <Percent className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-800">3. G.S.T. Section</h3>
+                <p className="text-xs text-gray-500">Tax percentages collected across food, delivery, and platform fees</p>
               </div>
             </div>
 
-            {/* RAZORPAY GATEWAY SETTINGS */}
-            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mt-8 flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-indigo-600" />
-              Razorpay Payment Gateway Configuration
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Razorpay Key ID (Public Key)
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Food GST (% on Original Food Cost)
                 </label>
                 <input
-                  type="text"
-                  value={settings.razorpay_key_id || ''}
-                  onChange={(e) =>
-                    setSettings({ ...settings, razorpay_key_id: e.target.value })
-                  }
-                  placeholder="rzp_test_... or rzp_live_..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white font-mono text-xs"
+                  type="number"
+                  step="0.1"
+                  value={settings.food_gst_pct ?? 5}
+                  onChange={(e) => setSettings({ ...settings, food_gst_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Synced with Customer, Rider & Restaurant apps for instant checkout.
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">Standard 5% restaurant food GST.</p>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Razorpay Key Secret (Server-Side HMAC)
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Delivery GST (% on Delivery Partner Fee)
                 </label>
                 <input
-                  type="password"
-                  value={settings.razorpay_key_secret || ''}
-                  onChange={(e) =>
-                    setSettings({ ...settings, razorpay_key_secret: e.target.value })
-                  }
-                  placeholder="Enter Razorpay Key Secret (or set in Render ENV)"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white font-mono text-xs"
+                  type="number"
+                  step="0.1"
+                  value={settings.delivery_gst_pct ?? 18}
+                  onChange={(e) => setSettings({ ...settings, delivery_gst_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Used by server.js to verify SHA256 payment signatures.
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">GST rate applied on delivery partner fee.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Platform Fee GST (% on Platform Fee Cost)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={settings.platform_fee_gst_pct ?? 18}
+                  onChange={(e) => setSettings({ ...settings, platform_fee_gst_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">GST rate applied on total platform fees.</p>
               </div>
             </div>
+          </div>
 
+          <div className="flex justify-end">
             <button
               type="submit"
               disabled={savingSettings}
-              className="px-6 py-2.5 bg-brand text-white rounded-xl hover:bg-brand/90 disabled:opacity-50 font-semibold cursor-pointer"
+              className="px-6 py-3 bg-brand text-white font-bold rounded-xl hover:bg-brand/90 disabled:opacity-50 cursor-pointer shadow-md"
             >
-              {savingSettings ? 'Saving Settings...' : 'Save Financial & Gateway Settings'}
+              {savingSettings ? 'Saving Configuration...' : 'Save All Financial Settings'}
             </button>
-          </form>
-        )}
+          </div>
+        </form>
+      )}
 
-        {/* COUPONS TAB */}
-        {activeTab === 'COUPONS' && (
-          <div>
-            <div className="p-4 border-b border-gray-100 flex justify-end">
+      {activeTab === 'COUPONS' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-lg text-gray-800">Customer Checkout Promo Codes</h3>
+            <button
+              onClick={() => openCouponModal()}
+              className="flex items-center px-4 py-2 bg-brand text-white rounded-xl text-sm font-semibold cursor-pointer"
+            >
+              <Plus className="w-4 h-4 mr-2" /> Create Promo Code
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {coupons.map((c) => (
+              <div key={c.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="px-3 py-1 bg-emerald-50 text-brand font-black font-mono text-sm rounded-lg border border-emerald-200">
+                      {c.code}
+                    </span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${c.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {c.is_active ? 'ACTIVE' : 'INACTIVE'}
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold text-gray-800 mt-3">
+                    {c.discount_type === 'PERCENTAGE' ? `${c.discount_value}% OFF` : `₹${c.discount_value} FLAT OFF`}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">{c.description}</p>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Min Order: ₹{c.min_order_value || 0} {c.max_discount ? `• Max Cap: ₹${c.max_discount}` : ''}
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-gray-100">
+                  <button onClick={() => openCouponModal(c)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer">
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleDeleteCoupon(c.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {coupons.length === 0 && (
+              <div className="col-span-3 bg-white p-8 rounded-2xl text-center text-gray-400 border border-gray-100">
+                No active promo codes created yet.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'LEDGER' && (
+        <div className="space-y-6">
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-2 bg-gray-100 p-1.5 rounded-xl">
               <button
-                onClick={() => openCouponModal()}
-                className="flex items-center px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors cursor-pointer"
+                onClick={() => setLedgerRoleSwitch('RESTAURANT')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  ledgerRoleSwitch === 'RESTAURANT' ? 'bg-brand text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
               >
-                <Plus className="w-4 h-4 mr-2" /> Create Promo Code
+                <Store className="w-4 h-4" />
+                Restaurant Ledgers ({filteredRestaurantsLedger.length})
+              </button>
+              <button
+                onClick={() => setLedgerRoleSwitch('RIDER')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  ledgerRoleSwitch === 'RIDER' ? 'bg-brand text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Bike className="w-4 h-4" />
+                Rider Ledgers ({filteredRidersLedger.length})
               </button>
             </div>
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-gray-600">
-                <tr>
-                  <th className="p-4 font-medium">Code</th>
-                  <th className="p-4 font-medium">Discount</th>
-                  <th className="p-4 font-medium">Conditions</th>
-                  <th className="p-4 font-medium">Status</th>
-                  <th className="p-4 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {coupons.map((c) => (
-                  <tr key={c.id} className="hover:bg-gray-50/50">
-                    <td className="p-4">
-                      <span className="font-mono font-bold text-brand bg-brand/10 px-2 py-1 rounded">
-                        {c.code}
-                      </span>
-                      <div className="text-xs text-gray-500 mt-1">{c.description}</div>
-                    </td>
-                    <td className="p-4 font-medium text-gray-800">
-                      {c.discount_type === 'FLAT'
-                        ? `₹${c.discount_value} OFF`
-                        : `${c.discount_value}% OFF`}
-                      {c.max_discount && (
-                        <div className="text-xs text-gray-500">Up to ₹{c.max_discount}</div>
-                      )}
-                    </td>
-                    <td className="p-4 text-xs text-gray-600">
-                      <div>Min Order: ₹{c.min_order_value}</div>
-                      {c.expiry_date && (
-                        <div className="text-red-500">
-                          Expires: {new Date(c.expiry_date).toLocaleDateString()}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-semibold ${
-                          c.is_active
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-gray-100 text-gray-500'
-                        }`}
-                      >
-                        {c.is_active ? 'Active' : 'Disabled'}
-                      </span>
-                    </td>
-                    <td className="p-4 text-right space-x-2">
-                      <button
-                        onClick={() => openCouponModal(c)}
-                        className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg cursor-pointer"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCoupon(c.id)}
-                        className="text-red-500 hover:bg-red-50 p-2 rounded-lg cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {coupons.length === 0 && (
-                  <tr>
-                    <td colSpan="5" className="p-8 text-center text-gray-400">
-                      No promo codes created yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
 
-        {/* LEDGER TAB */}
-        {activeTab === 'LEDGER' && (
-          <div className="p-6">
-            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">
-              Restaurant Settlements
-            </h3>
-            <div className="overflow-x-auto mb-10 border border-gray-200 rounded-lg">
+            <div className="relative w-full md:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search partner name or phone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-xl outline-none"
+              />
+            </div>
+          </div>
+
+          {ledgerRoleSwitch === 'RESTAURANT' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredRestaurantsLedger.map((r) => (
+                <div key={r.restaurant_id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col justify-between hover:border-brand/40 transition-all">
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-gray-800 text-base flex items-center gap-1.5">
+                          <Store className="w-4 h-4 text-brand shrink-0" />
+                          {r.restaurant_name}
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">{r.phone_number}</p>
+                      </div>
+                      <button
+                        onClick={() => handleUpdateCustomCommission(r.restaurant_id, r.effective_commission_pct)}
+                        className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[11px] font-bold hover:bg-indigo-100 cursor-pointer"
+                        title="Click to override Restaurant Platform Fee %"
+                      >
+                        Fee: {r.effective_commission_pct}% ✎
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mt-4 bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-xs">
+                      <div>
+                        <p className="text-gray-400">Completed Orders</p>
+                        <p className="font-bold text-gray-800 text-sm">{r.completed_orders}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Gross Food Sales</p>
+                        <p className="font-bold text-gray-800 text-sm">₹{Math.round(r.gross_sales)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Platform Fee Deducted</p>
+                        <p className="font-semibold text-red-600">-₹{Math.round(r.platform_commission)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Food GST Deducted</p>
+                        <p className="font-semibold text-purple-600">-₹{Math.round(r.gst_collected)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] text-gray-400">Already Settled: ₹{Math.round(r.total_settled)}</p>
+                      <p className="text-sm font-black text-emerald-700 mt-0.5">
+                        Net Pending Due: ₹{Math.round(r.net_restaurant_payout)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedPartnerDetail({ role: 'RESTAURANT', data: r })}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer"
+                    >
+                      Full Card Details
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {filteredRestaurantsLedger.length === 0 && (
+                <div className="col-span-3 bg-white p-10 rounded-2xl text-center text-gray-400 border border-gray-100">
+                  No restaurants in ledger yet.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredRidersLedger.map((rd) => (
+                <div key={rd.rider_id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col justify-between hover:border-brand/40 transition-all">
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-gray-800 text-base flex items-center gap-1.5">
+                          <Bike className="w-4 h-4 text-amber-600 shrink-0" />
+                          {rd.rider_name}
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">{rd.phone_number}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${rd.uniform_fee_paid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800'}`}>
+                        {rd.uniform_fee_paid ? 'Onboarding Paid' : 'Onboarding Due'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mt-4 bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-xs">
+                      <div>
+                        <p className="text-gray-400">Deliveries Done</p>
+                        <p className="font-bold text-gray-800 text-sm">{rd.completed_deliveries}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Total Distance</p>
+                        <p className="font-bold text-gray-800 text-sm">{Number(rd.total_distance_km || 0).toFixed(1)} km</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Lifetime Earnings</p>
+                        <p className="font-semibold text-emerald-700">₹{Math.round(rd.lifetime_earnings)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Total Settled</p>
+                        <p className="font-semibold text-blue-600">₹{Math.round(rd.total_settled)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] text-gray-400">Unsettled Wallet Balance</p>
+                      <p className="text-sm font-black text-emerald-700">
+                        Pending Payout: ₹{Math.round(rd.total_payout_due)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedPartnerDetail({ role: 'RIDER', data: rd })}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer"
+                    >
+                      Full Card Details
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {filteredRidersLedger.length === 0 && (
+                <div className="col-span-3 bg-white p-10 rounded-2xl text-center text-gray-400 border border-gray-100">
+                  No riders in ledger yet.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'PAYOUTS' && (
+        <div className="space-y-6">
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-gray-100 p-1.5 rounded-xl">
+                <button
+                  onClick={() => setPayoutRoleSwitch('RESTAURANT')}
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    payoutRoleSwitch === 'RESTAURANT' ? 'bg-brand text-white shadow-sm' : 'text-gray-600'
+                  }`}
+                >
+                  <Store className="w-4 h-4" />
+                  Restaurant Payouts
+                </button>
+                <button
+                  onClick={() => setPayoutRoleSwitch('RIDER')}
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    payoutRoleSwitch === 'RIDER' ? 'bg-brand text-white shadow-sm' : 'text-gray-600'
+                  }`}
+                >
+                  <Bike className="w-4 h-4" />
+                  Rider Payouts
+                </button>
+              </div>
+
+              <div className="flex gap-1.5">
+                {['ALL', 'PENDING', 'PAID', 'REJECTED'].map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setPayoutStatusFilter(st)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                      payoutStatusFilter === st ? 'bg-dark text-white' : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {st === 'PAID' ? 'SETTLED HISTORY' : st}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search partner or UTR note..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-xl outline-none"
+              />
+            </div>
+          </div>
+
+          {partnerPayoutGroups.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {partnerPayoutGroups.map((pg) => (
+                <div key={pg.user_id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-gray-800">{pg.partner_name}</h4>
+                    <span className="text-xs text-gray-400">{pg.requests.length} Requests</span>
+                  </div>
+                  <p className="text-xs text-gray-500">{pg.phone_number}</p>
+                  <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-100 text-xs">
+                    <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900">
+                      <p className="text-[10px] uppercase font-bold text-amber-600">Pending Request</p>
+                      <p className="text-base font-black mt-0.5">₹{Math.round(pg.pending_amount)}</p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-900">
+                      <p className="text-[10px] uppercase font-bold text-emerald-600">Past Settled</p>
+                      <p className="text-base font-black mt-0.5">₹{Math.round(pg.paid_amount)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-gray-50 text-gray-600">
                   <tr>
-                    <th className="p-4 font-medium">Restaurant</th>
-                    <th className="p-4 font-medium">Gross Sales</th>
-                    <th className="p-4 font-medium text-red-600">Platform Comm.</th>
-                    <th className="p-4 font-medium text-purple-600">GST Holding</th>
-                    <th className="p-4 font-medium text-gray-500">Settled So Far</th>
-                    <th className="p-4 font-medium text-green-600">Active Payable Debt</th>
+                    <th className="p-4 font-medium">Request ID & Date</th>
+                    <th className="p-4 font-medium">Partner</th>
+                    <th className="p-4 font-medium">Requested Amount</th>
+                    <th className="p-4 font-medium">Status</th>
+                    <th className="p-4 font-medium">Bank / Settlement Note</th>
+                    <th className="p-4 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {ledger.restaurantLedger.map((r) => {
-                    const gross = Number(r.gross_sales || 0);
-                    const comm = Number(r.platform_commission || 0);
-                    const gst = Number(r.gst_collected || 0);
-                    const settled = Number(r.total_settled || 0);
-                    const payable =
-                      r.net_restaurant_payout !== undefined
-                        ? Number(r.net_restaurant_payout)
-                        : Math.max(0, gross - comm - gst - settled);
-
-                    return (
-                      <tr key={r.restaurant_id} className="hover:bg-gray-50/50">
-                        <td className="p-4 font-medium text-gray-800">
-                          {r.restaurant_name}{' '}
-                          <span className="text-xs text-gray-400 font-normal ml-2">
-                            ({r.completed_orders || 0} orders)
+                  {roleFilteredPayouts.map((p) => (
+                    <tr key={p.id} className="hover:bg-gray-50/50">
+                      <td className="p-4">
+                        <div className="font-bold text-gray-800">#PO-{p.id}</div>
+                        <div className="text-xs text-gray-400">
+                          {new Date(p.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-semibold text-gray-800">{p.partner_name}</div>
+                        <div className="text-xs text-gray-500">{p.phone_number}</div>
+                      </td>
+                      <td className="p-4 font-black text-gray-900 text-base">₹{p.amount}</td>
+                      <td className="p-4">
+                        <span
+                          className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                            p.status === 'PAID'
+                              ? 'bg-green-100 text-green-700'
+                              : p.status === 'REJECTED'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {p.status === 'PAID' ? 'SETTLED (PAID)' : p.status}
+                        </span>
+                      </td>
+                      <td className="p-4 text-xs text-gray-600 max-w-xs truncate">
+                        {p.transaction_note || 'Awaiting bank settlement'}
+                      </td>
+                      <td className="p-4 text-right space-x-2">
+                        {p.status === 'PENDING' ? (
+                          <>
+                            <button
+                              onClick={() => handleSettlePayout(p.id, p.partner_name, p.amount)}
+                              className="inline-flex items-center px-3 py-1.5 bg-brand text-white rounded-lg text-xs font-semibold cursor-pointer"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5 mr-1" /> Settle Funds
+                            </button>
+                            <button
+                              onClick={() => handleRejectPayout(p.id)}
+                              className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-semibold cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-xs text-gray-400">
+                            Updated {p.updated_at ? new Date(p.updated_at).toLocaleDateString('en-IN') : ''}
                           </span>
-                        </td>
-                        <td className="p-4">₹{gross}</td>
-                        <td className="p-4 text-red-600">
-                          -₹{comm}{' '}
-                          <span className="text-xs">({r.effective_commission_pct || 20}%)</span>
-                        </td>
-                        <td className="p-4 text-purple-600">-₹{gst}</td>
-                        <td className="p-4 text-gray-500">₹{settled}</td>
-                        <td className="p-4 font-bold text-green-600">₹{payable}</td>
-                      </tr>
-                    );
-                  })}
-                  {ledger.restaurantLedger.length === 0 && (
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {roleFilteredPayouts.length === 0 && (
                     <tr>
                       <td colSpan="6" className="p-8 text-center text-gray-400">
-                        No restaurant ledger entries found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Rider Payouts</h3>
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="p-4 font-medium">Rider Name</th>
-                    <th className="p-4 font-medium">Completed Deliveries</th>
-                    <th className="p-4 font-medium">Uniform Fee</th>
-                    <th className="p-4 font-medium text-gray-500">Settled So Far</th>
-                    <th className="p-4 font-medium text-green-600">Active Payable Debt</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {ledger.riderLedger.map((r) => {
-                    const settled = Number(r.total_settled || 0);
-                    const due =
-                      r.total_payout_due !== undefined
-                        ? Number(r.total_payout_due)
-                        : Math.max(0, Number(r.gross_earnings || 0) - settled);
-
-                    return (
-                      <tr key={r.rider_id} className="hover:bg-gray-50/50">
-                        <td className="p-4 font-medium text-gray-800">{r.rider_name}</td>
-                        <td className="p-4">{r.completed_deliveries || 0} deliveries</td>
-                        <td className="p-4">
-                          {r.uniform_fee_paid ? (
-                            <span className="text-green-600 text-xs font-bold">PAID</span>
-                          ) : (
-                            <span className="text-red-500 text-xs font-bold">UNPAID</span>
-                          )}
-                        </td>
-                        <td className="p-4 text-gray-500">₹{settled}</td>
-                        <td className="p-4 font-bold text-green-600">₹{due}</td>
-                      </tr>
-                    );
-                  })}
-                  {ledger.riderLedger.length === 0 && (
-                    <tr>
-                      <td colSpan="5" className="p-8 text-center text-gray-400">
-                        No rider ledger entries found.
+                        No {payoutRoleSwitch.toLowerCase()} payout requests found in this view.
                       </td>
                     </tr>
                   )}
@@ -682,237 +921,101 @@ export default function Finance() {
               </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* PAYOUT REQUESTS TAB */}
-        {activeTab === 'PAYOUTS' && (
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <th className="p-4 font-medium">Date & Time</th>
-                <th className="p-4 font-medium">Partner Info</th>
-                <th className="p-4 font-medium">Amount Requested</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {payouts.map((p) => (
-                <tr key={p.id} className="hover:bg-gray-50/50">
-                  <td className="p-4 text-xs text-gray-500">
-                    {new Date(p.created_at).toLocaleString()}
-                  </td>
-                  <td className="p-4">
-                    <div className="font-semibold text-gray-800">{p.partner_name}</div>
-                    <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          p.role_type === 'RIDER'
-                            ? 'bg-orange-100 text-orange-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}
-                      >
-                        {p.role_type}
-                      </span>
-                      {p.phone_number}
-                    </div>
-                  </td>
-                  <td className="p-4 font-bold text-gray-800">₹{p.amount}</td>
-                  <td className="p-4">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-semibold ${
-                        p.status === 'PAID'
-                          ? 'bg-green-100 text-green-700'
-                          : p.status === 'REJECTED'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}
-                    >
-                      {p.status}
-                    </span>
-                    {p.transaction_note && (
-                      <div
-                        className={`text-[10px] mt-1 max-w-[180px] truncate ${
-                          p.status === 'REJECTED' ? 'text-red-500' : 'text-gray-400'
-                        }`}
-                        title={p.transaction_note}
-                      >
-                        {p.transaction_note}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-4 text-right">
-                    {p.status === 'PENDING' && (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => handleSettlePayout(p.id, p.partner_name, p.amount)}
-                          className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-md font-semibold text-xs cursor-pointer transition-colors"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 mr-1" /> Paid
-                        </button>
-                        <button
-                          onClick={() => handleRejectPayout(p.id)}
-                          className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-md font-semibold text-xs cursor-pointer transition-colors"
-                        >
-                          <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {payouts.length === 0 && (
-                <tr>
-                  <td colSpan="5" className="p-8 text-center text-gray-400">
-                    No payout requests currently.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Coupon Modal */}
-      {isCouponModalOpen && (
+      {selectedPartnerDetail && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-xl text-gray-800">
-                {editingCouponId ? 'Edit' : 'Create'} Promo Code
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg text-gray-800">
+                {selectedPartnerDetail.data.restaurant_name || selectedPartnerDetail.data.rider_name} — Financial Statement
               </h3>
-              <button
-                onClick={() => setIsCouponModalOpen(false)}
-                className="text-gray-400 hover:text-gray-800 cursor-pointer"
-              >
+              <button onClick={() => setSelectedPartnerDetail(null)} className="text-gray-400 hover:text-gray-700 cursor-pointer">
                 <XCircle className="w-6 h-6" />
               </button>
             </div>
+            <div className="space-y-3 text-sm bg-gray-50 p-4 rounded-xl border border-gray-100">
+              {selectedPartnerDetail.role === 'RESTAURANT' ? (
+                <>
+                  <div className="flex justify-between"><span>Completed Orders:</span><strong>{selectedPartnerDetail.data.completed_orders}</strong></div>
+                  <div className="flex justify-between"><span>Gross Food Sales:</span><strong>₹{Math.round(selectedPartnerDetail.data.gross_sales)}</strong></div>
+                  <div className="flex justify-between text-red-600"><span>Platform Fee ({selectedPartnerDetail.data.effective_commission_pct}%):</span><strong>-₹{Math.round(selectedPartnerDetail.data.platform_commission)}</strong></div>
+                  <div className="flex justify-between text-purple-600"><span>Food GST Deducted:</span><strong>-₹{Math.round(selectedPartnerDetail.data.gst_collected)}</strong></div>
+                  <div className="flex justify-between border-t pt-2"><span>Lifetime Net Earnings:</span><strong>₹{Math.round(selectedPartnerDetail.data.lifetime_net_payout)}</strong></div>
+                  <div className="flex justify-between text-blue-600"><span>Total Settled (Paid Out):</span><strong>₹{Math.round(selectedPartnerDetail.data.total_settled)}</strong></div>
+                  <div className="flex justify-between border-t pt-2 text-base font-black text-emerald-700"><span>Net Pending Payout:</span><span>₹{Math.round(selectedPartnerDetail.data.net_restaurant_payout)}</span></div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between"><span>Completed Deliveries:</span><strong>{selectedPartnerDetail.data.completed_deliveries}</strong></div>
+                  <div className="flex justify-between"><span>Total OSRM Distance:</span><strong>{Number(selectedPartnerDetail.data.total_distance_km || 0).toFixed(1)} km</strong></div>
+                  <div className="flex justify-between"><span>Lifetime Rider Earnings:</span><strong>₹{Math.round(selectedPartnerDetail.data.lifetime_earnings)}</strong></div>
+                  <div className="flex justify-between text-blue-600"><span>Total Settled (Paid Out):</span><strong>₹{Math.round(selectedPartnerDetail.data.total_settled)}</strong></div>
+                  <div className="flex justify-between border-t pt-2 text-base font-black text-emerald-700"><span>Net Pending Payout:</span><span>₹{Math.round(selectedPartnerDetail.data.total_payout_due)}</span></div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
-            <form onSubmit={handleCouponSubmit} className="space-y-4 text-sm">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-medium text-gray-700 mb-1">Code</label>
-                  <input
-                    type="text"
-                    required
-                    value={couponForm.code}
-                    onChange={(e) =>
-                      setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none font-mono uppercase"
-                    placeholder="SUMMER50"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-gray-700 mb-1">Type</label>
-                  <select
-                    value={couponForm.discount_type}
-                    onChange={(e) =>
-                      setCouponForm({ ...couponForm, discount_type: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white"
-                  >
-                    <option value="PERCENTAGE">Percentage (%)</option>
-                    <option value="FLAT">Flat Amount (₹)</option>
-                  </select>
-                </div>
-              </div>
-
+      {isCouponModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h3 className="font-bold text-lg text-gray-800 mb-4">
+              {editingCouponId ? 'Edit Promo Code' : 'Create Promo Code'}
+            </h3>
+            <form onSubmit={handleCouponSubmit} className="space-y-4">
               <div>
-                <label className="block font-medium text-gray-700 mb-1">
-                  Discount Value {couponForm.discount_type === 'FLAT' ? '(₹)' : '(%)'}
-                </label>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Coupon Code</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={couponForm.discount_value}
-                  onChange={(e) =>
-                    setCouponForm({ ...couponForm, discount_value: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                  value={couponForm.code}
+                  onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm uppercase font-mono"
+                  placeholder="WELCOME50"
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-gray-700 mb-1">Min Order (₹)</label>
-                  <input
-                    type="number"
-                    value={couponForm.min_order_value}
-                    onChange={(e) =>
-                      setCouponForm({ ...couponForm, min_order_value: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                  />
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Discount Type</label>
+                  <select
+                    value={couponForm.discount_type}
+                    onChange={(e) => setCouponForm({ ...couponForm, discount_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                  >
+                    <option value="PERCENTAGE">Percentage (%)</option>
+                    <option value="FLAT">Flat (₹)</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="block font-medium text-gray-700 mb-1">Max Discount (₹)</label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Discount Value</label>
                   <input
                     type="number"
-                    value={couponForm.max_discount}
-                    onChange={(e) =>
-                      setCouponForm({ ...couponForm, max_discount: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                    placeholder="Leave blank for no limit"
+                    required
+                    value={couponForm.discount_value}
+                    onChange={(e) => setCouponForm({ ...couponForm, discount_value: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   />
                 </div>
               </div>
-
               <div>
-                <label className="block font-medium text-gray-700 mb-1">
-                  Description (Customer Facing)
-                </label>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Description</label>
                 <input
                   type="text"
                   value={couponForm.description}
-                  onChange={(e) =>
-                    setCouponForm({ ...couponForm, description: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                  placeholder="Get 50% off on all orders"
+                  onChange={(e) => setCouponForm({ ...couponForm, description: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="block font-medium text-gray-700 mb-1">Expiry Date</label>
-                  <input
-                    type="date"
-                    value={couponForm.expiry_date}
-                    onChange={(e) =>
-                      setCouponForm({ ...couponForm, expiry_date: e.target.value })
-                    }
-                    className="px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                  />
-                </div>
-                <label className="flex items-center space-x-2 cursor-pointer mt-4">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(couponForm.is_active)}
-                    onChange={(e) =>
-                      setCouponForm({ ...couponForm, is_active: e.target.checked })
-                    }
-                    className="w-5 h-5 text-brand rounded focus:ring-brand"
-                  />
-                  <span className="font-medium text-gray-700">Code is Active</span>
-                </label>
-              </div>
-
-              <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsCouponModalOpen(false)}
-                  className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg cursor-pointer"
-                >
+              <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+                <button type="button" onClick={() => setIsCouponModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-gray-500">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 cursor-pointer font-medium"
-                >
-                  Save Promo Code
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-brand text-white rounded-lg cursor-pointer">
+                  Save Coupon
                 </button>
               </div>
             </form>

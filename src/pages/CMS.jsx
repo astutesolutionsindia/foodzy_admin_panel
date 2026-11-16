@@ -43,6 +43,7 @@ export default function CMS() {
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({});
   const [savingContent, setSavingContent] = useState(false);
+  const [restaurantsList, setRestaurantsList] = useState([]);
 
   // MULTI-POLYGON GEOFENCE STATE
   const [savedZones, setSavedZones] = useState(() => {
@@ -83,9 +84,10 @@ export default function CMS() {
   const fetchData = useCallback(async () => {
     try {
       setIsSyncing(true);
-      const [bannersRes, categoriesRes, geofenceRes] = await Promise.all([
+      const [bannersRes, categoriesRes, restaurantsRes, geofenceRes] = await Promise.all([
         api.get('/admin/banners'),
         api.get('/admin/categories'),
+        api.get('/admin/restaurants').catch(() => ({ data: [] })),
         api.get('/admin/geofence').catch(() => ({
           data: { service_polygon: [], enforce_geofence: false }
         }))
@@ -99,6 +101,7 @@ export default function CMS() {
 
       setBanners(nextBanners);
       setCategories(nextCategories);
+      setRestaurantsList(restaurantsRes.data || []);
       setSavedZones(nextZones);
       setEnforceGeofence(nextEnforce);
 
@@ -911,31 +914,55 @@ export default function CMS() {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white"
                       >
                         <option value="NONE">No Action</option>
-                        <option value="RESTAURANT">Restaurant ID</option>
+                        <option value="RESTAURANT">Link Directly to a Restaurant (Ad Banner)</option>
                         <option value="COUPON">Coupon Code</option>
                         <option value="SEARCH">Search Query</option>
                         <option value="BOTTOM_SHEET_POPUP">Bottom Sheet Popup</option>
                       </select>
                     </div>
 
-                    {formData.redirect_type !== 'NONE' &&
-                      formData.redirect_type !== 'BOTTOM_SHEET_POPUP' && (
+                    {formData.redirect_type === 'RESTAURANT' && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Target Value
+                            Select Sponsored Restaurant (Direct Link)
                           </label>
-                          <input
-                            type="text"
+                          <select
                             required
                             value={formData.redirect_value || ''}
                             onChange={(e) =>
                               setFormData({ ...formData, redirect_value: e.target.value })
                             }
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
-                            placeholder="e.g. SAVE50 or Burger"
-                          />
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none bg-white"
+                          >
+                            <option value="">-- Choose Restaurant to Open on Click --</option>
+                            {restaurantsList.map((r) => (
+                              <option key={r.id} value={String(r.id)}>
+                                {r.name} (ID #{r.id})
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       )}
+
+                      {formData.redirect_type !== 'NONE' &&
+                        formData.redirect_type !== 'RESTAURANT' &&
+                        formData.redirect_type !== 'BOTTOM_SHEET_POPUP' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Target Value
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={formData.redirect_value || ''}
+                              onChange={(e) =>
+                                setFormData({ ...formData, redirect_value: e.target.value })
+                              }
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none"
+                              placeholder="e.g. SAVE50 or Burger"
+                            />
+                          </div>
+                        )}
                   </div>
 
                   {formData.redirect_type === 'BOTTOM_SHEET_POPUP' && (

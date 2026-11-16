@@ -433,21 +433,7 @@ export default function Directory() {
           <Store className="w-4 h-4 mr-2" /> Restaurants ({restaurants.length})
         </button>
 
-        <button
-          onClick={() => setActiveTab('PROMOTIONS')}
-          className={`flex items-center pb-3 px-4 font-medium text-sm transition-colors cursor-pointer ${
-            activeTab === 'PROMOTIONS'
-              ? 'border-b-2 border-amber-500 text-amber-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <Crown className="w-4 h-4 mr-2 text-amber-500" /> Super Admin Promotions
-          {pendingPromoCount > 0 && (
-            <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-              {pendingPromoCount} New
-            </span>
-          )}
-        </button>
+        
 
         <button
           onClick={() => setActiveTab('RIDERS')}

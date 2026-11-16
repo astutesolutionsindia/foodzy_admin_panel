@@ -1,12 +1,13 @@
 import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { ShieldAlert, UserPlus, Trash2, Clock, Loader2, XCircle, ShieldCheck, RefreshCw } from 'lucide-react';
+import { ShieldAlert, UserPlus, Trash2, Clock, XCircle, ShieldCheck, RefreshCw, ChevronDown, ChevronUp, Activity } from 'lucide-react';
 import api from '../config/api';
 
 export default function Team() {
   const { user } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('MEMBERS');
   const [isSyncing, setIsSyncing] = useState(true);
+  const [expandedAdminId, setExpandedAdminId] = useState(null);
 
   const [team, setTeam] = useState(() => {
     try {
@@ -102,6 +103,20 @@ export default function Team() {
     FIELD_ADMIN: 'bg-emerald-100 text-emerald-700 border-emerald-200'
   };
 
+  const adminCards = team.map((member) => {
+    const memberLogs = logs.filter(
+      (l) => String(l.admin_id) === String(member.id) || l.admin_name === member.full_name
+    );
+    return {
+      id: member.id,
+      name: member.full_name,
+      phone: member.phone_number,
+      role: member.role_type || 'ADMIN',
+      logs: memberLogs,
+      lastActive: memberLogs[0]?.created_at || null
+    };
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -114,7 +129,7 @@ export default function Team() {
               </span>
             )}
           </div>
-          <p className="text-gray-500">Manage admin privileges and monitor platform audit logs.</p>
+          <p className="text-gray-500">Manage admin privileges and inspect per-admin audit log cards.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -134,7 +149,6 @@ export default function Team() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex space-x-2 border-b border-gray-200">
         <button
           onClick={() => setActiveTab('MEMBERS')}
@@ -156,12 +170,12 @@ export default function Team() {
           }`}
         >
           <Clock className="w-4 h-4 mr-2" />
-          Audit Logs ({logs.length})
+          Admin Audit Log Cards ({logs.length} Events)
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {activeTab === 'MEMBERS' && (
+      {activeTab === 'MEMBERS' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
@@ -202,57 +216,85 @@ export default function Team() {
               ))}
             </tbody>
           </table>
-        )}
+        </div>
+      )}
 
-        {activeTab === 'LOGS' && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-gray-50 text-gray-600">
-                <tr>
-                  <th className="p-4 font-medium">Time</th>
-                  <th className="p-4 font-medium">Admin</th>
-                  <th className="p-4 font-medium">Action Event</th>
-                  <th className="p-4 font-medium">Target ID</th>
-                  <th className="p-4 font-medium">Payload Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50/50">
-                    <td className="p-4 text-xs text-gray-500">
-                      {new Date(log.created_at).toLocaleString()}
-                    </td>
-                    <td className="p-4">
-                      <div className="font-medium text-gray-800">{log.admin_name}</div>
-                      <div className="text-xs text-gray-400">
-                        {log.admin_role ? log.admin_role.replace('_', ' ') : ''}
+      {activeTab === 'LOGS' && (
+        <div className="space-y-4">
+          {adminCards.map((ac) => {
+            const isExpanded = expandedAdminId === ac.id;
+            return (
+              <div key={ac.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div
+                  onClick={() => setExpandedAdminId(isExpanded ? null : ac.id)}
+                  className="p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50/60 transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-xl bg-dark text-white flex items-center justify-center font-black text-base">
+                      {(ac.name || 'A').charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-gray-800 text-base">{ac.name}</h4>
+                        <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${roleColors[ac.role] || 'bg-gray-100 text-gray-700'}`}>
+                          {ac.role.replace('_', ' ')}
+                        </span>
                       </div>
-                    </td>
-                    <td className="p-4 font-mono text-xs text-blue-600">{log.action}</td>
-                    <td className="p-4 text-gray-600">
-                      {log.target_type} #{log.target_id}
-                    </td>
-                    <td className="p-4">
-                      <pre className="text-[10px] text-gray-500 bg-gray-50 p-2 rounded border border-gray-100 max-w-xs overflow-hidden text-ellipsis">
-                        {JSON.stringify(log.details)}
-                      </pre>
-                    </td>
-                  </tr>
-                ))}
-                {logs.length === 0 && (
-                  <tr>
-                    <td colSpan="5" className="p-8 text-center text-gray-500">
-                      No recent actions recorded.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {ac.phone} • {ac.lastActive ? `Last Action: ${new Date(ac.lastActive).toLocaleString('en-IN')}` : 'No actions recorded yet'}
+                      </p>
+                    </div>
+                  </div>
 
-      {/* Add Admin Modal */}
+                  <div className="flex items-center gap-3">
+                    <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 font-bold text-xs flex items-center gap-1.5">
+                      <Activity className="w-3.5 h-3.5" />
+                      {ac.logs.length} Logged Actions
+                    </span>
+                    {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="border-t border-gray-100 bg-gray-50/50 p-4">
+                    {ac.logs.length > 0 ? (
+                      <div className="overflow-x-auto bg-white rounded-xl border border-gray-100">
+                        <table className="w-full text-left text-xs whitespace-nowrap">
+                          <thead className="bg-gray-50 text-gray-500">
+                            <tr>
+                              <th className="p-3 font-bold">Time</th>
+                              <th className="p-3 font-bold">Action Event</th>
+                              <th className="p-3 font-bold">Target</th>
+                              <th className="p-3 font-bold">Details</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {ac.logs.map((log) => (
+                              <tr key={log.id}>
+                                <td className="p-3 text-gray-500">{new Date(log.created_at).toLocaleString('en-IN')}</td>
+                                <td className="p-3 font-mono font-bold text-blue-600">{log.action}</td>
+                                <td className="p-3 text-gray-700">{log.target_type} #{log.target_id}</td>
+                                <td className="p-3">
+                                  <pre className="text-[10px] text-gray-500 bg-gray-50 p-1.5 rounded border border-gray-100 max-w-md overflow-hidden text-ellipsis">
+                                    {JSON.stringify(log.details)}
+                                  </pre>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-center text-xs text-gray-400 py-4">No audit actions logged for {ac.name} yet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
