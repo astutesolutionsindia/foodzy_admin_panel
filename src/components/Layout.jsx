@@ -1,19 +1,57 @@
-import { useContext } from 'react';
+import { useContext, useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FileCheck, Map, Users, Trophy, Star, Sparkles,
+  LayoutDashboard, FileCheck, Map, Users, Trophy, Star, Sparkles, UtensilsCrossed,
   Image as ImageIcon, BadgeDollarSign, Archive, ShieldAlert, LogOut
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
+import { initSocket } from '../config/socket';
+import api from '../config/api';
 
 export default function Layout({ children }) {
   const { user, logout } = useContext(AuthContext);
   const location = useLocation();
+  const [pendingPriceCount, setPendingPriceCount] = useState(0);
+
+  const fetchPendingPricesCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await api.get('/admin/menu/pending-prices');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+      setPendingPriceCount(list.length);
+    } catch {
+      // Graceful fallback until backend route is live
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchPendingPricesCount();
+    const timer = setInterval(fetchPendingPricesCount, 25000);
+
+    const socket = initSocket();
+    if (socket) {
+      socket.on('menuPriceApprovalRequested', fetchPendingPricesCount);
+      socket.on('menuUpdated', fetchPendingPricesCount);
+    }
+
+    const handleCustomRefresh = () => fetchPendingPricesCount();
+    window.addEventListener('foodzyMenuApprovalUpdated', handleCustomRefresh);
+
+    return () => {
+      clearInterval(timer);
+      if (socket) {
+        socket.off('menuPriceApprovalRequested', fetchPendingPricesCount);
+        socket.off('menuUpdated', fetchPendingPricesCount);
+      }
+      window.removeEventListener('foodzyMenuApprovalUpdated', handleCustomRefresh);
+    };
+  }, [fetchPendingPricesCount]);
 
   const navItems = [
     { name: 'Command Center', path: '/', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
     { name: 'Top-5 Leaderboard', path: '/leaderboard', icon: Trophy, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
     { name: 'Reviews & Ratings', path: '/reviews', icon: Star, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
+    { name: 'Menu & Price Control', path: '/menu-manager', icon: UtensilsCrossed, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'], badge: pendingPriceCount },
     { name: 'KYC Desk', path: '/kyc', icon: FileCheck, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
     { name: 'Live Orders', path: '/orders', icon: Map, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
     { name: 'Directory', path: '/directory', icon: Users, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
@@ -54,14 +92,21 @@ export default function Layout({ children }) {
               <NavLink
                 key={item.name}
                 to={item.path}
-                className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm transition-all ${
+                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm transition-all ${
                   isActive
                     ? 'bg-brand text-white font-semibold shadow-lg shadow-brand/25'
                     : 'text-gray-400 hover:bg-white/5 hover:text-white'
                 }`}
               >
-                <Icon className="w-4 h-4 mr-3 shrink-0" />
-                <span className="truncate">{item.name}</span>
+                <div className="flex items-center min-w-0">
+                  <Icon className="w-4 h-4 mr-3 shrink-0" />
+                  <span className="truncate">{item.name}</span>
+                </div>
+                {item.badge > 0 && (
+                  <span className="ml-2 px-2 py-0.5 text-[10px] font-black rounded-full bg-red-500 text-white animate-pulse shrink-0">
+                    {item.badge}
+                  </span>
+                )}
               </NavLink>
             );
           })}

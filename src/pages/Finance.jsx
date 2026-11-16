@@ -540,6 +540,55 @@ export default function Finance() {
             </div>
           </div>
 
+          {/* Section 4: Dynamic T.D.S. (Tax Deducted at Source) Section */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 pb-4 mb-5 border-b border-gray-100">
+              <div className="p-2 rounded-lg bg-emerald-50 text-emerald-700">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-800">4. T.D.S. Section (Dynamic Income Tax Withholding)</h3>
+                <p className="text-xs text-gray-500">
+                  Configure Tax Deducted at Source (%) under Section 194-O. Update anytime government TDS rates change.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Restaurant TDS (% on Original Food Cost — Sec 194-O)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={settings.restaurant_tds_pct ?? 1}
+                  onChange={(e) => setSettings({ ...settings, restaurant_tds_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Deducted from Restaurant Payout (e.g. 1% on ₹500 food cost = ₹5.00 TDS). Set to 0% if exempt.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Rider TDS (% on Delivery Partner Fee)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={settings.rider_tds_pct ?? 0}
+                  onChange={(e) => setSettings({ ...settings, rider_tds_pct: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-brand"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Deducted from Rider Payout (Default: 0% for gig riders; adjustable if TDS law changes).
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <button
               type="submit"
@@ -675,8 +724,8 @@ export default function Finance() {
                         <p className="font-semibold text-red-600">-₹{Math.round(r.platform_commission)}</p>
                       </div>
                       <div>
-                        <p className="text-gray-400">Food GST Deducted</p>
-                        <p className="font-semibold text-purple-600">-₹{Math.round(r.gst_collected)}</p>
+                        <p className="text-gray-400">18% Fee GST + TDS</p>
+                        <p className="font-semibold text-purple-600">-₹{Number((r.commission_gst || 0) + (r.tds_amount || 0)).toFixed(2)}</p>
                       </div>
                     </div>
                   </div>

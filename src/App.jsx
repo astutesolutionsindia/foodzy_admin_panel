@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import CommandCenter from './pages/CommandCenter';
 import Leaderboard from './pages/Leaderboard';
 import ReviewsHub from './pages/ReviewsHub';
+import MenuManager from './pages/MenuManager';
 import KYCDesk from './pages/KYCDesk';
 import LiveOrders from './pages/LiveOrders';
 import Directory from './pages/Directory';
@@ -38,6 +39,7 @@ function AppRoutes() {
       <Route path="/" element={<ProtectedRoute><CommandCenter /></ProtectedRoute>} />
       <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
       <Route path="/reviews" element={<ProtectedRoute><ReviewsHub /></ProtectedRoute>} />
+      <Route path="/menu-manager" element={<ProtectedRoute><MenuManager /></ProtectedRoute>} />
       <Route path="/kyc" element={<ProtectedRoute><KYCDesk /></ProtectedRoute>} />
       <Route path="/orders" element={<ProtectedRoute><LiveOrders /></ProtectedRoute>} />
       <Route path="/directory" element={<ProtectedRoute><Directory /></ProtectedRoute>} />
