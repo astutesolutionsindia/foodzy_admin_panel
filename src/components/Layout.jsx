@@ -12,11 +12,17 @@ export default function Layout({ children }) {
   const { user, logout } = useContext(AuthContext);
   const location = useLocation();
   const [pendingPriceCount, setPendingPriceCount] = useState(0);
+  const [openIssuesCount, setOpenIssuesCount] = useState(0);
 
   const fetchPendingPricesCount = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await api.get('/admin/menu/pending-prices');
+      const [res, issuesRes] = await Promise.all([
+        api.get('/admin/menu/pending-prices').catch(() => ({ data: [] })),
+        api.get('/support/issues').catch(() => ({ data: [] }))
+      ]);
+      const issuesList = Array.isArray(issuesRes.data) ? issuesRes.data : [];
+      setOpenIssuesCount(issuesList.filter((i) => i.status !== 'RESOLVED').length);
       const list = Array.isArray(res.data) ? res.data : (res.data?.items || []);
       setPendingPriceCount(list.length);
     } catch {
@@ -58,7 +64,7 @@ export default function Layout({ children }) {
     { name: 'Directory & Edit', path: '/directory', icon: Users, roles: ALL_NON_FINANCE },
     { name: 'Packaging Store', path: '/packaging', icon: Package, roles: ALL_NON_FINANCE },
     { name: 'Push Notifications', path: '/push-notifications', icon: BellRing, roles: ALL_NON_FINANCE },
-    { name: 'Issue Resolution Desk', path: '/support-desk', icon: LifeBuoy, roles: ALL_NON_FINANCE },
+    { name: 'Issue Resolution Desk', path: '/support-desk', icon: LifeBuoy, roles: ALL_NON_FINANCE, badge: openIssuesCount },
     { name: 'Promotions', path: '/promotions', icon: Sparkles, roles: ALL_NON_FINANCE },
     { name: 'App CMS', path: '/cms', icon: ImageIcon, roles: ALL_NON_FINANCE },
     { name: 'Finance Console', path: '/finance', icon: BadgeDollarSign, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN'] },

@@ -1,13 +1,18 @@
 ﻿import { useState, useEffect, useCallback, useContext } from 'react';
-import { LifeBuoy, AlertTriangle, CheckCircle2, Plus, Send, RefreshCw } from 'lucide-react';
+import { LifeBuoy, AlertTriangle, CheckCircle2, Send, RefreshCw, MessageSquareReply } from 'lucide-react';
 import api from '../config/api';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
 
 export default function SupportDesk() {
   const { user } = useContext(AuthContext);
+  const isSuperAdmin = user?.role_type === 'SUPER_ADMIN';
+
   const [issues, setIssues] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState({});
+  const [sendingReplyId, setSendingReplyId] = useState(null);
+
   const [form, setForm] = useState({
     reporter_name: '',
     reporter_phone: '',
@@ -45,12 +50,16 @@ export default function SupportDesk() {
 
   const handleSubmitIssue = async (e) => {
     e.preventDefault();
+    if (!form.description.trim()) {
+      return alert('Please write the issue details before sending to Super-Admin.');
+    }
     try {
       await api.post('/support/issues', {
         ...form,
-        reporter_name: form.reporter_name || user?.full_name || 'Tech Support Agent',
-        reporter_phone: form.reporter_phone || user?.phone_number || '',
-        reporter_role: user?.role_type || 'TECH_SUPPORT'
+        subject: form.subject.trim() || `${form.category} (${user?.role_type || 'FIELD_ADMIN'})`,
+        reporter_name: form.reporter_name.trim() || user?.full_name || 'Field Admin',
+        reporter_phone: form.reporter_phone.trim() || user?.phone_number || '',
+        reporter_role: user?.role_type || 'FIELD_ADMIN'
       });
       setForm({
         reporter_name: '',
@@ -61,24 +70,31 @@ export default function SupportDesk() {
         subject: '',
         description: ''
       });
+      window.dispatchEvent(new Event('foodzySupportIssueUpdated'));
       fetchIssues();
-      alert('✅ Issue escalated to Super-Admin for resolution!');
+      alert('✅ Issue sent to Super-Admin!');
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to submit issue');
+      alert(err.response?.data?.error || 'Failed to send issue to Super-Admin');
     }
   };
 
-  const handleResolve = async (issue) => {
-    const note = window.prompt('Enter resolution note for this issue:', issue.resolution_note || 'Resolved by Super Admin');
-    if (note === null) return;
+  const handleSuperAdminReply = async (issue, nextStatus = 'RESOLVED') => {
+    const replyText = (replyDrafts[issue.id] ?? issue.resolution_note ?? '').trim();
+    if (!replyText) {
+      return alert('Please write a reply for the admin team first.');
+    }
     try {
+      setSendingReplyId(issue.id);
       await api.put(`/support/issues/${issue.id}`, {
-        status: 'RESOLVED',
-        resolution_note: note
+        status: nextStatus,
+        resolution_note: replyText
       });
+      window.dispatchEvent(new Event('foodzySupportIssueUpdated'));
       fetchIssues();
     } catch {
-      alert('Failed to mark issue as resolved');
+      alert('Failed to send reply');
+    } finally {
+      setSendingReplyId(null);
     }
   };
 
@@ -91,7 +107,7 @@ export default function SupportDesk() {
             Issue Escalation & Super-Admin Resolution Desk
           </h2>
           <p className="text-gray-500 text-sm">
-            Highlight customer or employee issues and escalate directly to Super-Admin for resolution
+            Field Admins & Tech Support can highlight issues below and send directly to Super-Admin for reply & resolution
           </p>
         </div>
         <button
@@ -99,62 +115,31 @@ export default function SupportDesk() {
           className="px-4 py-2 bg-gray-800 text-white rounded-xl text-sm font-bold flex items-center gap-2 cursor-pointer self-start"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Sync Issues
+          Refresh Queue
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Submit / Highlight New Issue to Super Admin */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+        {/* Left Column: Field Admin / Tech Support Issue Composer */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 self-start">
           <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500" />
-            Escalate Issue to Super-Admin
+            Highlight Issue to Super-Admin
           </h3>
-          <form onSubmit={handleSubmitIssue} className="space-y-3 text-sm">
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Customer / Caller Name</label>
-              <input
-                type="text"
-                value={form.reporter_name}
-                onChange={(e) => setForm({ ...form, reporter_name: e.target.value })}
-                placeholder="Customer or Employee Name"
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
-              />
-            </div>
+          <form onSubmit={handleSubmitIssue} className="space-y-3.5 text-sm">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-bold text-gray-600 mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  value={form.reporter_phone}
-                  onChange={(e) => setForm({ ...form, reporter_phone: e.target.value })}
-                  placeholder="+91..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-600 mb-1">Order ID (Optional)</label>
-                <input
-                  type="number"
-                  value={form.order_id}
-                  onChange={(e) => setForm({ ...form, order_id: e.target.value })}
-                  placeholder="e.g. 104"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold text-gray-600 mb-1">Category</label>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Issue Category</label>
                 <select
                   value={form.category}
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white outline-none"
                 >
                   <option value="Order / Delivery Issue">Order / Delivery</option>
+                  <option value="Customer Call / Complaint">Customer Call</option>
                   <option value="Restaurant / Menu Issue">Restaurant / Menu</option>
                   <option value="Rider Dispatch Issue">Rider Dispatch</option>
-                  <option value="App Technical Bug">Technical / App Bug</option>
+                  <option value="App Technical Bug">Technical Bug</option>
                 </select>
               </div>
               <div>
@@ -170,45 +155,79 @@ export default function SupportDesk() {
                 </select>
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Customer / Caller Phone</label>
+                <input
+                  type="text"
+                  value={form.reporter_phone}
+                  onChange={(e) => setForm({ ...form, reporter_phone: e.target.value })}
+                  placeholder="Optional (+91...)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Order ID (If Any)</label>
+                <input
+                  type="number"
+                  value={form.order_id}
+                  onChange={(e) => setForm({ ...form, order_id: e.target.value })}
+                  placeholder="e.g. 105"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
+                />
+              </div>
+            </div>
+
             <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Issue Subject *</label>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Issue Title / Subject *</label>
               <input
                 type="text"
                 required
                 value={form.subject}
                 onChange={(e) => setForm({ ...form, subject: e.target.value })}
-                placeholder="Brief summary of the issue"
+                placeholder="Short summary of the problem"
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
               />
             </div>
+
             <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Detailed Issue Description *</label>
+              <label className="block text-xs font-bold text-gray-600 mb-1">
+                Write Detailed Issue for Super-Admin *
+              </label>
               <textarea
-                rows="3"
+                rows="5"
                 required
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="Describe full details for Super-Admin resolution..."
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none"
+                placeholder="Type the complete issue encountered by our employee or reported by a customer call..."
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none"
               />
             </div>
+
             <button
               type="submit"
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm cursor-pointer"
             >
               <Send className="w-4 h-4" /> Send to Super-Admin
             </button>
           </form>
         </div>
 
-        {/* Escalated Issues Queue */}
+        {/* Right Column: Super-Admin View & Inline Reply Feed */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 border-b border-gray-100 font-bold text-gray-800">
-            Escalated Issues Queue ({issues.length})
+          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+            <span className="font-bold text-gray-800">
+              Escalated Issues Queue ({issues.length})
+            </span>
+            <span className="text-xs text-gray-500">
+              {isSuperAdmin ? 'Super-Admin Mode: Reply & Resolve below' : 'Live updates from Super-Admin'}
+            </span>
           </div>
-          <div className="divide-y divide-gray-100 max-h-[620px] overflow-y-auto">
+
+          <div className="divide-y divide-gray-100 max-h-[680px] overflow-y-auto">
             {issues.map((iss) => (
-              <div key={iss.id} className="p-4 hover:bg-gray-50/60 space-y-2">
+              <div key={iss.id} className="p-5 hover:bg-gray-50/50 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black mr-2 ${
@@ -222,38 +241,67 @@ export default function SupportDesk() {
                         Order #{iss.order_id}
                       </span>
                     )}
-                    <h4 className="font-bold text-gray-800 mt-1">{iss.subject}</h4>
+                    <h4 className="font-bold text-gray-800 text-base mt-1">{iss.subject}</h4>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                     iss.status === 'RESOLVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                   }`}>
                     {iss.status}
                   </span>
                 </div>
-                <p className="text-xs text-gray-600 whitespace-pre-line">{iss.description}</p>
-                <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1">
-                  <span>
-                    Reported by: <strong className="text-gray-700">{iss.reporter_name}</strong> ({iss.reporter_phone || iss.reporter_role})
-                  </span>
-                  {iss.status !== 'RESOLVED' && user?.role_type === 'SUPER_ADMIN' && (
-                    <button
-                      onClick={() => handleResolve(iss)}
-                      className="px-3 py-1 bg-emerald-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Resolve Issue
-                    </button>
-                  )}
+
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-sm text-gray-700 whitespace-pre-line">
+                  {iss.description}
                 </div>
+
+                <div className="text-xs text-gray-400 flex items-center justify-between">
+                  <span>
+                    Escalated by: <strong className="text-gray-700">{iss.reporter_name}</strong> ({iss.reporter_role || 'ADMIN'})
+                    {iss.reporter_phone ? ` • 📞 ${iss.reporter_phone}` : ''}
+                  </span>
+                  <span>{iss.created_at ? new Date(iss.created_at).toLocaleString() : ''}</span>
+                </div>
+
+                {/* Existing Super-Admin Reply Display (Visible to Field Admin, Tech Support & Super Admin) */}
                 {iss.resolution_note && (
-                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900">
-                    <strong>Resolution ({iss.resolved_by || 'Super Admin'}):</strong> {iss.resolution_note}
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 space-y-1">
+                    <div className="font-bold text-emerald-800 flex items-center gap-1.5">
+                      <MessageSquareReply className="w-4 h-4" />
+                      Super-Admin Reply ({iss.resolved_by || 'Super Admin'}):
+                    </div>
+                    <p className="text-sm text-emerald-900 whitespace-pre-line">{iss.resolution_note}</p>
+                  </div>
+                )}
+
+                {/* Super-Admin Inline Reply Box */}
+                {isSuperAdmin && (
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={replyDrafts[iss.id] ?? iss.resolution_note ?? ''}
+                      onChange={(e) =>
+                        setReplyDrafts({ ...replyDrafts, [iss.id]: e.target.value })
+                      }
+                      placeholder="Write Super-Admin reply / resolution instructions..."
+                      className="flex-1 px-3.5 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-emerald-500 bg-white"
+                    />
+                    <button
+                      type="button"
+                      disabled={sendingReplyId === iss.id}
+                      onClick={() => handleSuperAdminReply(iss, 'RESOLVED')}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      {sendingReplyId === iss.id ? 'Sending...' : 'Reply & Resolve'}
+                    </button>
                   </div>
                 )}
               </div>
             ))}
+
             {issues.length === 0 && (
-              <div className="p-10 text-center text-gray-400 text-sm">
-                No open issues in the queue.
+              <div className="p-12 text-center text-gray-400 text-sm">
+                No issues escalated yet. Any issue sent by Field Admin or Tech Support will appear here for Super-Admin.
               </div>
             )}
           </div>
