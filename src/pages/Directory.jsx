@@ -191,6 +191,35 @@ export default function Directory() {
     }
   };
 
+
+  const handleQuickEditRider = async (r) => {
+    const full_name = window.prompt('Update Rider Name:', r.full_name || '');
+    if (full_name === null) return;
+    const phone_number = window.prompt('Update Rider Phone:', r.phone_number || '');
+    if (phone_number === null) return;
+    const bank_account_number = window.prompt('Update Rider Bank Account No:', r.bank_account_number || '');
+    const bank_ifsc = window.prompt('Update Rider Bank IFSC:', r.bank_ifsc || '');
+    try {
+      await api.put(`/admin/riders/${r.id}/details`, { full_name, phone_number, bank_account_number, bank_ifsc });
+      fetchDirectoryData();
+    } catch (err) {
+      alert('Failed to update rider details');
+    }
+  };
+
+  const handleQuickEditCustomer = async (c) => {
+    const full_name = window.prompt('Update Customer Name:', c.full_name || '');
+    if (full_name === null) return;
+    const phone_number = window.prompt('Update Customer Phone:', c.phone_number || '');
+    if (phone_number === null) return;
+    try {
+      await api.put(`/admin/customers/${c.id}/details`, { full_name, phone_number });
+      fetchDirectoryData();
+    } catch (err) {
+      alert('Failed to update customer details');
+    }
+  };
+
   // --- Restaurant Ranking & Commission Edit ---
   const openRestaurantModal = (r) => {
     setEditingRestaurant(r);
@@ -883,7 +912,10 @@ export default function Directory() {
               <tbody className="divide-y divide-gray-100">
                 {filteredRiders.map((r) => (
                   <tr key={r.id} className="hover:bg-gray-50/50">
-                    <td className="p-4 font-bold text-gray-800">{r.full_name}</td>
+                    <td className="p-4 font-bold text-gray-800 flex items-center gap-2">
+                      {r.full_name}
+                      <button onClick={() => handleQuickEditRider(r)} className="text-xs text-emerald-600 hover:underline font-semibold cursor-pointer">[Edit]</button>
+                    </td>
                     <td className="p-4 text-gray-600">{r.phone_number}</td>
                     <td className="p-4">
                       <span
@@ -940,7 +972,10 @@ export default function Directory() {
               <tbody className="divide-y divide-gray-100">
                 {filteredCustomers.map((c) => (
                   <tr key={c.id} className="hover:bg-gray-50/50">
-                    <td className="p-4 font-bold text-gray-800">{c.full_name}</td>
+                    <td className="p-4 font-bold text-gray-800 flex items-center gap-2">
+                      {c.full_name}
+                      <button onClick={() => handleQuickEditCustomer(c)} className="text-xs text-emerald-600 hover:underline font-semibold cursor-pointer">[Edit]</button>
+                    </td>
                     <td className="p-4 text-gray-600">{c.phone_number}</td>
                     <td className="p-4">{c.total_orders || 0} orders</td>
                     <td className="p-4 font-bold text-green-600">₹{c.total_spent || 0}</td>

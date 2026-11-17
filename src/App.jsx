@@ -15,6 +15,9 @@ import CMS from './pages/CMS';
 import Finance from './pages/Finance';
 import FinancialArchive from './pages/FinancialArchive';
 import Team from './pages/Team';
+import PackagingStore from './pages/PackagingStore';
+import NotificationsPush from './pages/NotificationsPush';
+import SupportDesk from './pages/SupportDesk';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
@@ -47,6 +50,9 @@ function AppRoutes() {
       <Route path="/cms" element={<ProtectedRoute><CMS /></ProtectedRoute>} />
       <Route path="/finance" element={<ProtectedRoute><Finance /></ProtectedRoute>} />
       <Route path="/finance-archive" element={<ProtectedRoute><FinancialArchive /></ProtectedRoute>} />
+      <Route path="/packaging" element={<ProtectedRoute><PackagingStore /></ProtectedRoute>} />
+      <Route path="/push-notifications" element={<ProtectedRoute><NotificationsPush /></ProtectedRoute>} />
+      <Route path="/support-desk" element={<ProtectedRoute><SupportDesk /></ProtectedRoute>} />
       <Route path="/team" element={<ProtectedRoute><Team /></ProtectedRoute>} />
     </Routes>
   );

@@ -40,6 +40,42 @@ export default function MenuManager() {
 
   // Add-On Manager Modal State
   const [isAddonModalOpen, setIsAddonModalOpen] = useState(false);
+  const [isRestDetailModalOpen, setIsRestDetailModalOpen] = useState(false);
+  const [restDetailForm, setRestDetailForm] = useState({
+    name: '', phone_number: '', cuisine: '', delivery_time: '', address: '', lat: '', lng: '', pan_number: '', fssai_number: '', gst_number: '', bank_account_number: '', bank_ifsc: ''
+  });
+
+  const openRestDetailEditor = () => {
+    const r = restaurants.find((x) => String(x.id) === String(selectedRestId));
+    if (!r) return alert('Select a restaurant first');
+    setRestDetailForm({
+      name: r.name || '',
+      phone_number: r.phone_number || '',
+      cuisine: r.cuisine || '',
+      delivery_time: r.delivery_time || '25-35 mins',
+      address: r.address || '',
+      lat: r.lat ?? '',
+      lng: r.lng ?? '',
+      pan_number: r.pan_number || '',
+      fssai_number: r.fssai_number || '',
+      gst_number: r.gst_number || '',
+      bank_account_number: r.bank_account_number || '',
+      bank_ifsc: r.bank_ifsc || ''
+    });
+    setIsRestDetailModalOpen(true);
+  };
+
+  const handleSaveRestDetails = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put(`/admin/restaurants/${selectedRestId}/details`, restDetailForm);
+      setIsRestDetailModalOpen(false);
+      fetchInitialData();
+      alert('✅ Restaurant details updated!');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update restaurant details');
+    }
+  };
   const [addonForm, setAddonForm] = useState({
     name: '',
     price: '',
@@ -390,7 +426,13 @@ export default function MenuManager() {
             <Layers className="w-4 h-4" /> Manage Add-Ons ({addons.length})
           </button>
           <button
-            onClick={openCreateDishModal}
+            onClick={openRestDetailEditor}
+              className="px-4 py-2.5 bg-amber-500 text-white rounded-xl hover:bg-amber-600 font-bold text-sm flex items-center gap-2 shadow-sm cursor-pointer"
+            >
+              <Edit className="w-4 h-4" /> Edit Restaurant Details
+            </button>
+            <button
+              onClick={openCreateDishModal}
             className="flex items-center gap-2 px-4 py-2.5 bg-brand text-white hover:bg-brand/90 rounded-xl text-xs font-bold cursor-pointer shadow-sm"
           >
             <Plus className="w-4 h-4" /> Add Dish (Instant Live)
@@ -952,6 +994,78 @@ export default function MenuManager() {
                 <p className="text-xs text-gray-400 text-center py-4">No custom add-ons created for this restaurant yet.</p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {isRestDetailModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg text-gray-800">Update Restaurant Details & Location</h3>
+              <button onClick={() => setIsRestDetailModalOpen(false)} className="text-gray-400 hover:text-gray-700 cursor-pointer">
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveRestDetails} className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Restaurant Name</label>
+                  <input type="text" required value={restDetailForm.name} onChange={(e) => setRestDetailForm({ ...restDetailForm, name: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Phone Number</label>
+                  <input type="text" value={restDetailForm.phone_number} onChange={(e) => setRestDetailForm({ ...restDetailForm, phone_number: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Cuisine</label>
+                  <input type="text" value={restDetailForm.cuisine} onChange={(e) => setRestDetailForm({ ...restDetailForm, cuisine: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Delivery Time</label>
+                  <input type="text" value={restDetailForm.delivery_time} onChange={(e) => setRestDetailForm({ ...restDetailForm, delivery_time: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Latitude (Unfreeze)</label>
+                  <input type="number" step="any" value={restDetailForm.lat} onChange={(e) => setRestDetailForm({ ...restDetailForm, lat: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-mono" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Longitude (Unfreeze)</label>
+                  <input type="number" step="any" value={restDetailForm.lng} onChange={(e) => setRestDetailForm({ ...restDetailForm, lng: e.target.value })} className="w-full px-3 py-2 border rounded-lg font-mono" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">PAN No.</label>
+                  <input type="text" value={restDetailForm.pan_number} onChange={(e) => setRestDetailForm({ ...restDetailForm, pan_number: e.target.value })} className="w-full px-2.5 py-1.5 border rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">FSSAI No.</label>
+                  <input type="text" value={restDetailForm.fssai_number} onChange={(e) => setRestDetailForm({ ...restDetailForm, fssai_number: e.target.value })} className="w-full px-2.5 py-1.5 border rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">GST No.</label>
+                  <input type="text" value={restDetailForm.gst_number} onChange={(e) => setRestDetailForm({ ...restDetailForm, gst_number: e.target.value })} className="w-full px-2.5 py-1.5 border rounded-lg text-xs" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Bank Account No.</label>
+                  <input type="text" value={restDetailForm.bank_account_number} onChange={(e) => setRestDetailForm({ ...restDetailForm, bank_account_number: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Bank IFSC</label>
+                  <input type="text" value={restDetailForm.bank_ifsc} onChange={(e) => setRestDetailForm({ ...restDetailForm, bank_ifsc: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-xs" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3">
+                <button type="button" onClick={() => setIsRestDetailModalOpen(false)} className="px-4 py-2 bg-gray-100 rounded-lg">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer">Save Restaurant Details</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

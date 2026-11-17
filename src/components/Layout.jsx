@@ -2,7 +2,7 @@ import { useContext, useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FileCheck, Map, Users, Trophy, Star, Sparkles, UtensilsCrossed,
-  Image as ImageIcon, BadgeDollarSign, Archive, ShieldAlert, LogOut
+  Image as ImageIcon, BadgeDollarSign, Archive, ShieldAlert, LogOut, Package, BellRing, LifeBuoy
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
@@ -47,16 +47,20 @@ export default function Layout({ children }) {
     };
   }, [fetchPendingPricesCount]);
 
+  const ALL_NON_FINANCE = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN', 'TECH_SUPPORT'];
   const navItems = [
-    { name: 'Command Center', path: '/', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'Top-5 Leaderboard', path: '/leaderboard', icon: Trophy, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'Reviews & Ratings', path: '/reviews', icon: Star, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'Menu & Price Control', path: '/menu-manager', icon: UtensilsCrossed, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'], badge: pendingPriceCount },
-    { name: 'KYC Desk', path: '/kyc', icon: FileCheck, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'Live Orders', path: '/orders', icon: Map, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'Directory', path: '/directory', icon: Users, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'Promotions', path: '/promotions', icon: Sparkles, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
-    { name: 'App CMS', path: '/cms', icon: ImageIcon, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN', 'FIELD_ADMIN'] },
+    { name: 'Command Center', path: '/', icon: LayoutDashboard, roles: ALL_NON_FINANCE },
+    { name: 'Top-5 Leaderboard', path: '/leaderboard', icon: Trophy, roles: ALL_NON_FINANCE },
+    { name: 'Reviews & Ratings', path: '/reviews', icon: Star, roles: ALL_NON_FINANCE },
+    { name: 'Menu & Price Control', path: '/menu-manager', icon: UtensilsCrossed, roles: ALL_NON_FINANCE, badge: pendingPriceCount },
+    { name: 'KYC Desk', path: '/kyc', icon: FileCheck, roles: ALL_NON_FINANCE },
+    { name: 'Live Orders', path: '/orders', icon: Map, roles: ALL_NON_FINANCE },
+    { name: 'Directory & Edit', path: '/directory', icon: Users, roles: ALL_NON_FINANCE },
+    { name: 'Packaging Store', path: '/packaging', icon: Package, roles: ALL_NON_FINANCE },
+    { name: 'Push Notifications', path: '/push-notifications', icon: BellRing, roles: ALL_NON_FINANCE },
+    { name: 'Issue Resolution Desk', path: '/support-desk', icon: LifeBuoy, roles: ALL_NON_FINANCE },
+    { name: 'Promotions', path: '/promotions', icon: Sparkles, roles: ALL_NON_FINANCE },
+    { name: 'App CMS', path: '/cms', icon: ImageIcon, roles: ALL_NON_FINANCE },
     { name: 'Finance Console', path: '/finance', icon: BadgeDollarSign, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN'] },
     { name: 'Financial Archive', path: '/finance-archive', icon: Archive, roles: ['SUPER_ADMIN', 'FINANCE_ADMIN'] },
     { name: 'Super Admin Team', path: '/team', icon: ShieldAlert, roles: ['SUPER_ADMIN'] },
