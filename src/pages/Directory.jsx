@@ -201,7 +201,9 @@ export default function Directory() {
       custom_commission_pct:
         r.custom_commission_pct !== null && r.custom_commission_pct !== undefined
           ? r.custom_commission_pct
-          : ''
+          : '',
+      lat: r.lat !== null && r.lat !== undefined ? r.lat : '',
+      lng: r.lng !== null && r.lng !== undefined ? r.lng : ''
     });
   };
 
@@ -215,6 +217,13 @@ export default function Directory() {
         is_sponsored: Boolean(restForm.is_sponsored),
         status: restForm.status
       });
+
+      if (restForm.lat !== '' && restForm.lng !== '' && !isNaN(Number(restForm.lat)) && !isNaN(Number(restForm.lng))) {
+        await api.put(`/admin/restaurants/${editingRestaurant.id}/location`, {
+          lat: Number(restForm.lat),
+          lng: Number(restForm.lng)
+        });
+      }
 
       if (['FINANCE_ADMIN', 'SUPER_ADMIN'].includes(user?.role_type)) {
         await api.put(`/admin/finance/restaurants/${editingRestaurant.id}/commission`, {
@@ -1378,6 +1387,60 @@ export default function Directory() {
                   onChange={(e) => setRestForm({ ...restForm, priority_rank: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none font-mono"
                 />
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                    Kitchen GPS Coordinates (Unfreeze / Override)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!navigator.geolocation) return alert('Geolocation not supported');
+                      navigator.geolocation.getCurrentPosition(
+                        (pos) =>
+                          setRestForm({
+                            ...restForm,
+                            lat: Number(pos.coords.latitude.toFixed(6)),
+                            lng: Number(pos.coords.longitude.toFixed(6))
+                          }),
+                        () => alert('Unable to fetch browser GPS')
+                      );
+                    }}
+                    className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    📍 Use My Current GPS
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      Latitude
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={restForm.lat ?? ''}
+                      onChange={(e) => setRestForm({ ...restForm, lat: e.target.value })}
+                      placeholder="e.g. 33.145944"
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg bg-white outline-none font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      Longitude
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={restForm.lng ?? ''}
+                      onChange={(e) => setRestForm({ ...restForm, lng: e.target.value })}
+                      placeholder="e.g. 75.539950"
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg bg-white outline-none font-mono text-xs"
+                    />
+                  </div>
+                </div>
               </div>
 
               <label className="flex items-center space-x-2 cursor-pointer">
