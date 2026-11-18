@@ -68,6 +68,9 @@ export default function Finance() {
   });
 
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
+  const [feeModalRest, setFeeModalRest] = useState(null);
+  const [feeModalValue, setFeeModalValue] = useState('');
+  const [savingFeeOverride, setSavingFeeOverride] = useState(false);
 
   const fetchFinanceData = useCallback(async () => {
     if (!['FINANCE_ADMIN', 'SUPER_ADMIN'].includes(user?.role_type)) return;
@@ -142,16 +145,26 @@ export default function Finance() {
     }
   };
 
-  const handleUpdateCustomCommission = async (restId, currentVal) => {
-    const input = window.prompt('Enter custom Restaurant Platform Fee % (leave blank to use global default):', currentVal ?? '');
-    if (input === null) return;
+  const handleUpdateCustomCommission = (restId, currentVal, restName = 'Restaurant') => {
+    setFeeModalRest({ id: restId, name: restName });
+    setFeeModalValue(currentVal !== undefined && currentVal !== null ? String(currentVal) : '');
+  };
+
+  const submitCustomCommissionModal = async (e) => {
+    e.preventDefault();
+    if (!feeModalRest) return;
     try {
-      await api.put(`/admin/finance/restaurants/${restId}/commission`, {
-        custom_commission_pct: input.trim() === '' ? null : Number(input)
+      setSavingFeeOverride(true);
+      const trimmed = String(feeModalValue).trim();
+      await api.put(`/admin/finance/restaurants/${feeModalRest.id}/commission`, {
+        custom_commission_pct: trimmed === '' ? null : Number(trimmed)
       });
-      fetchFinanceData();
-    } catch {
-      alert('Failed to update restaurant fee %.');
+      setFeeModalRest(null);
+      await fetchFinanceData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update restaurant fee %.');
+    } finally {
+      setSavingFeeOverride(false);
     }
   };
 
@@ -702,7 +715,7 @@ export default function Finance() {
                         <p className="text-xs text-gray-500 mt-0.5">{r.phone_number}</p>
                       </div>
                       <button
-                        onClick={() => handleUpdateCustomCommission(r.restaurant_id, r.effective_commission_pct)}
+                        onClick={() => handleUpdateCustomCommission(r.restaurant_id, r.effective_commission_pct, r.restaurant_name)}
                         className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[11px] font-bold hover:bg-indigo-100 cursor-pointer"
                         title="Click to override Restaurant Platform Fee %"
                       >
@@ -725,7 +738,7 @@ export default function Finance() {
                       </div>
                       <div>
                         <p className="text-gray-400">18% Fee GST + TDS</p>
-                        <p className="font-semibold text-purple-600">-₹{Number((r.commission_gst || 0) + (r.tds_amount || 0)).toFixed(2)}</p>
+                        <p className="font-semibold text-purple-600">-₹{(Number(r.commission_gst || 0) + Number(r.tds_amount || 0)).toFixed(2)}</p>
                       </div>
                     </div>
                   </div>
@@ -1065,6 +1078,61 @@ export default function Finance() {
                 </button>
                 <button type="submit" className="px-4 py-2 text-xs font-semibold bg-brand text-white rounded-lg cursor-pointer">
                   Save Coupon
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {feeModalRest && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg text-gray-800">
+                Override Platform Fee % — {feeModalRest.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setFeeModalRest(null)}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={submitCustomCommissionModal} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Custom Restaurant Platform Fee (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  autoFocus
+                  value={feeModalValue}
+                  onChange={(e) => setFeeModalValue(e.target.value)}
+                  placeholder="Leave blank to use global default"
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-brand"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Leave empty and save to revert to the global default commission percentage.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setFeeModalRest(null)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFeeOverride}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold cursor-pointer"
+                >
+                  {savingFeeOverride ? 'Saving...' : 'Update Fee %'}
                 </button>
               </div>
             </form>
