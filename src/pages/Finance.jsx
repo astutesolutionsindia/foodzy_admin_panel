@@ -1,3 +1,4 @@
+import { fmtMoney } from '../utils/formatMoney';
 import { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
@@ -901,11 +902,11 @@ export default function Finance() {
                   <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-100 text-xs">
                     <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900">
                       <p className="text-[10px] uppercase font-bold text-amber-600">Pending Request</p>
-                      <p className="text-base font-black mt-0.5">₹{Math.round(pg.pending_amount)}</p>
+                      <p className="text-base font-black mt-0.5">₹{fmtMoney(pg.pending_amount)}</p>
                     </div>
                     <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-900">
                       <p className="text-[10px] uppercase font-bold text-emerald-600">Past Settled</p>
-                      <p className="text-base font-black mt-0.5">₹{Math.round(pg.paid_amount)}</p>
+                      <p className="text-base font-black mt-0.5">₹{fmtMoney(pg.paid_amount)}</p>
                     </div>
                   </div>
                 </div>
@@ -939,7 +940,7 @@ export default function Finance() {
                         <div className="font-semibold text-gray-800">{p.partner_name}</div>
                         <div className="text-xs text-gray-500">{p.phone_number}</div>
                       </td>
-                      <td className="p-4 font-black text-gray-900 text-base">₹{p.amount}</td>
+                      <td className="p-4 font-black text-gray-900 text-base">₹{fmtMoney(p.amount)}</td>
                       <td className="p-4">
                         <span
                           className={`px-2.5 py-1 rounded-md text-xs font-bold ${
@@ -1009,20 +1010,20 @@ export default function Finance() {
               {selectedPartnerDetail.role === 'RESTAURANT' ? (
                 <>
                   <div className="flex justify-between"><span>Completed Orders:</span><strong>{selectedPartnerDetail.data.completed_orders}</strong></div>
-                  <div className="flex justify-between"><span>Gross Food Sales:</span><strong>₹{Math.round(selectedPartnerDetail.data.gross_sales)}</strong></div>
-                  <div className="flex justify-between text-red-600"><span>Platform Fee ({selectedPartnerDetail.data.effective_commission_pct}%):</span><strong>-₹{Math.round(selectedPartnerDetail.data.platform_commission)}</strong></div>
-                  <div className="flex justify-between text-purple-600"><span>Food GST Deducted:</span><strong>-₹{Math.round(selectedPartnerDetail.data.gst_collected)}</strong></div>
-                  <div className="flex justify-between border-t pt-2"><span>Lifetime Net Earnings:</span><strong>₹{Math.round(selectedPartnerDetail.data.lifetime_net_payout)}</strong></div>
-                  <div className="flex justify-between text-blue-600"><span>Total Settled (Paid Out):</span><strong>₹{Math.round(selectedPartnerDetail.data.total_settled)}</strong></div>
-                  <div className="flex justify-between border-t pt-2 text-base font-black text-emerald-700"><span>Net Pending Payout:</span><span>₹{Math.round(selectedPartnerDetail.data.net_restaurant_payout)}</span></div>
+                  <div className="flex justify-between"><span>Gross Food Sales:</span><strong>₹{fmtMoney(selectedPartnerDetail.data.gross_sales)}</strong></div>
+                  <div className="flex justify-between text-red-600"><span>Platform Fee ({selectedPartnerDetail.data.effective_commission_pct}%):</span><strong>-₹{fmtMoney(selectedPartnerDetail.data.platform_commission)}</strong></div>
+                  <div className="flex justify-between text-purple-600"><span>Food GST Deducted:</span><strong>-₹{fmtMoney(selectedPartnerDetail.data.gst_collected)}</strong></div>
+                  <div className="flex justify-between border-t pt-2"><span>Lifetime Net Earnings:</span><strong>₹{fmtMoney(selectedPartnerDetail.data.lifetime_net_payout)}</strong></div>
+                  <div className="flex justify-between text-blue-600"><span>Total Settled (Paid Out):</span><strong>₹{fmtMoney(selectedPartnerDetail.data.total_settled)}</strong></div>
+                  <div className="flex justify-between border-t pt-2 text-base font-black text-emerald-700"><span>Net Pending Payout:</span><span>₹{fmtMoney(selectedPartnerDetail.data.net_restaurant_payout)}</span></div>
                 </>
               ) : (
                 <>
                   <div className="flex justify-between"><span>Completed Deliveries:</span><strong>{selectedPartnerDetail.data.completed_deliveries}</strong></div>
                   <div className="flex justify-between"><span>Total OSRM Distance:</span><strong>{Number(selectedPartnerDetail.data.total_distance_km || 0).toFixed(1)} km</strong></div>
-                  <div className="flex justify-between"><span>Lifetime Rider Earnings:</span><strong>₹{Math.round(selectedPartnerDetail.data.lifetime_earnings)}</strong></div>
-                  <div className="flex justify-between text-blue-600"><span>Total Settled (Paid Out):</span><strong>₹{Math.round(selectedPartnerDetail.data.total_settled)}</strong></div>
-                  <div className="flex justify-between border-t pt-2 text-base font-black text-emerald-700"><span>Net Pending Payout:</span><span>₹{Math.round(selectedPartnerDetail.data.total_payout_due)}</span></div>
+                  <div className="flex justify-between"><span>Lifetime Rider Earnings:</span><strong>₹{fmtMoney(selectedPartnerDetail.data.lifetime_earnings)}</strong></div>
+                  <div className="flex justify-between text-blue-600"><span>Total Settled (Paid Out):</span><strong>₹{fmtMoney(selectedPartnerDetail.data.total_settled)}</strong></div>
+                  <div className="flex justify-between border-t pt-2 text-base font-black text-emerald-700"><span>Net Pending Payout:</span><span>₹{fmtMoney(selectedPartnerDetail.data.total_payout_due)}</span></div>
                 </>
               )}
             </div>

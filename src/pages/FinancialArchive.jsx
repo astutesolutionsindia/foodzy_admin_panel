@@ -1,3 +1,4 @@
+import { fmtMoney } from '../utils/formatMoney';
 import { useState, useEffect, useCallback } from 'react';
 import { Archive, Download, Calendar, DollarSign, Layers, Percent, RefreshCw } from 'lucide-react';
 import api from '../config/api';
@@ -130,10 +131,10 @@ export default function FinancialArchive() {
                   {m.completed_orders} Orders
                 </span>
               </div>
-              <p className="text-2xl font-black mt-2">₹{m.gmv}</p>
+              <p className="text-2xl font-black mt-2">₹{fmtMoney(m.gmv)}</p>
               <div className="mt-3 pt-3 border-t border-current/10 flex justify-between text-xs opacity-85">
-                <span>Fees: ₹{m.total_platform_fee}</span>
-                <span>GST: ₹{m.total_gst}</span>
+                <span>Fees: ₹{fmtMoney(m.total_platform_fee)}</span>
+                <span>GST: ₹{fmtMoney(m.total_gst)}</span>
               </div>
             </div>
           );
@@ -155,8 +156,8 @@ export default function FinancialArchive() {
             <div className="space-y-2 text-sm pt-2">
               <div className="flex justify-between"><span>Completed Orders:</span><strong>{selectedMonth.completed_orders}</strong></div>
               <div className="flex justify-between"><span>Cancelled Orders:</span><strong className="text-red-500">{selectedMonth.cancelled_orders}</strong></div>
-              <div className="flex justify-between"><span>Original Food Subtotal:</span><strong>₹{selectedMonth.food_subtotal}</strong></div>
-              <div className="flex justify-between border-t pt-2 text-base font-black text-green-700"><span>Gross Merchandise (GMV):</span><span>₹{selectedMonth.gmv}</span></div>
+              <div className="flex justify-between"><span>Original Food Subtotal:</span><strong>₹{fmtMoney(selectedMonth.food_subtotal)}</strong></div>
+              <div className="flex justify-between border-t pt-2 text-base font-black text-green-700"><span>Gross Merchandise (GMV):</span><span>₹{fmtMoney(selectedMonth.gmv)}</span></div>
             </div>
           </div>
 
@@ -166,10 +167,10 @@ export default function FinancialArchive() {
               {selectedMonth.month_label} — 3-Way Platform Fees
             </h3>
             <div className="space-y-2 text-sm pt-2">
-              <div className="flex justify-between"><span>Restaurant Platform Fee:</span><strong>₹{selectedMonth.rest_platform_fee}</strong></div>
-              <div className="flex justify-between"><span>Food Platform Fee:</span><strong>₹{selectedMonth.food_platform_fee}</strong></div>
-              <div className="flex justify-between"><span>Delivery Platform Fee:</span><strong>₹{selectedMonth.delivery_platform_fee}</strong></div>
-              <div className="flex justify-between border-t pt-2 text-base font-black text-indigo-700"><span>Total Platform Fee Collected:</span><span>₹{selectedMonth.total_platform_fee}</span></div>
+              <div className="flex justify-between"><span>Restaurant Platform Fee:</span><strong>₹{fmtMoney(selectedMonth.rest_platform_fee)}</strong></div>
+              <div className="flex justify-between"><span>Food Platform Fee:</span><strong>₹{fmtMoney(selectedMonth.food_platform_fee)}</strong></div>
+              <div className="flex justify-between"><span>Delivery Platform Fee:</span><strong>₹{fmtMoney(selectedMonth.delivery_platform_fee)}</strong></div>
+              <div className="flex justify-between border-t pt-2 text-base font-black text-indigo-700"><span>Total Platform Fee Collected:</span><span>₹{fmtMoney(selectedMonth.total_platform_fee)}</span></div>
             </div>
           </div>
 
@@ -179,10 +180,10 @@ export default function FinancialArchive() {
               {selectedMonth.month_label} — 3-Way G.S.T. Collected
             </h3>
             <div className="space-y-2 text-sm pt-2">
-              <div className="flex justify-between"><span>Food GST:</span><strong>₹{selectedMonth.food_gst}</strong></div>
-              <div className="flex justify-between"><span>Delivery GST:</span><strong>₹{selectedMonth.delivery_gst}</strong></div>
-              <div className="flex justify-between"><span>Platform Fee GST:</span><strong>₹{selectedMonth.platform_fee_gst}</strong></div>
-              <div className="flex justify-between border-t pt-2 text-base font-black text-purple-700"><span>Total GST Collected:</span><span>₹{selectedMonth.total_gst}</span></div>
+              <div className="flex justify-between"><span>Food GST:</span><strong>₹{fmtMoney(selectedMonth.food_gst)}</strong></div>
+              <div className="flex justify-between"><span>Delivery GST:</span><strong>₹{fmtMoney(selectedMonth.delivery_gst)}</strong></div>
+              <div className="flex justify-between"><span>Platform Fee GST:</span><strong>₹{fmtMoney(selectedMonth.platform_fee_gst)}</strong></div>
+              <div className="flex justify-between border-t pt-2 text-base font-black text-purple-700"><span>Total GST Collected:</span><span>₹{fmtMoney(selectedMonth.total_gst)}</span></div>
             </div>
           </div>
         </div>

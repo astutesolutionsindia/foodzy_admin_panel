@@ -1,3 +1,4 @@
+import { fmtMoney } from '../utils/formatMoney';
 import { useState, useEffect, useCallback } from 'react';
 import { Trophy, Store, Users, Bike, Star, RefreshCw, Award, TrendingUp } from 'lucide-react';
 import api from '../config/api';

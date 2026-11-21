@@ -1,3 +1,4 @@
+import { fmtMoney } from '../utils/formatMoney';
 import { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
@@ -220,7 +221,7 @@ export default function CommandCenter() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <MetricCard
               title="Gross Merchandise"
-              value={`₹${fin.grossMerchandiseValue ?? 0}`}
+              value={`₹${fmtMoney(fin.grossMerchandiseValue)}`}
               subtitle={`Gross Business (${currentMonthName})`}
               icon={DollarSign}
               colorClass="bg-green-50 text-green-600"
@@ -228,24 +229,24 @@ export default function CommandCenter() {
             />
             <MetricCard
               title="Pending Payout"
-              value={`₹${fin.pendingPayoutTotal ?? fin.totalCommission ?? 0}`}
-              subtitle={`Rest: ₹${fin.pendingRestaurantPayout ?? 0} • Rider: ₹${fin.pendingRiderPayout ?? 0}`}
+              value={`₹${fmtMoney(fin.pendingPayoutTotal ?? fin.totalCommission)}`}
+              subtitle={`Rest: ₹${fmtMoney(fin.pendingRestaurantPayout)} • Rider: ₹${fmtMoney(fin.pendingRiderPayout)}`}
               icon={Wallet}
               colorClass="bg-emerald-50 text-emerald-600"
               onClick={() => navigate('/finance')}
             />
             <MetricCard
               title="Platform Fee"
-              value={`₹${fin.totalPlatformFees ?? 0}`}
-              subtitle={`Food: ₹${fin.totalFoodPlatformFee ?? 0} • Rest: ₹${fin.monthRestPlatformFee ?? 0} • Rider: ₹${fin.totalDeliveryPlatformFee ?? 0}`}
+              value={`₹${fmtMoney(fin.totalPlatformFees)}`}
+              subtitle={`Food: ₹${fmtMoney(fin.totalFoodPlatformFee)} • Rest: ₹${fmtMoney(fin.monthRestPlatformFee)} • Rider: ₹${fmtMoney(fin.totalDeliveryPlatformFee)}`}
               icon={Layers}
               colorClass="bg-indigo-50 text-indigo-600"
               onClick={() => navigate('/finance')}
             />
             <MetricCard
               title="GST Collected"
-              value={`₹${fin.totalGst ?? 0}`}
-              subtitle={`Food: ₹${fin.monthFoodGst ?? 0} • Deliv: ₹${fin.monthDeliveryGst ?? 0} • Fee GST: ₹${fin.monthPlatformFeeGst ?? 0}`}
+              value={`₹${fmtMoney(fin.totalGst)}`}
+              subtitle={`Food: ₹${fmtMoney(fin.monthFoodGst)} • Deliv: ₹${fmtMoney(fin.monthDeliveryGst)} • Fee GST: ₹${fmtMoney(fin.monthPlatformFeeGst)}`}
               icon={DollarSign}
               colorClass="bg-purple-50 text-purple-600"
               onClick={() => navigate('/finance')}
