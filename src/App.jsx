@@ -46,7 +46,9 @@ function AppRoutes() {
       <Route path="/reviews" element={<ProtectedRoute><ReviewsHub /></ProtectedRoute>} />
       <Route path="/menu-manager" element={<ProtectedRoute><MenuManager /></ProtectedRoute>} />
       <Route path="/kyc" element={<ProtectedRoute><KYCDesk /></ProtectedRoute>} />
+      <Route path="/control-tower" element={<ProtectedRoute><ControlTower /></ProtectedRoute>} />
       <Route path="/orders" element={<ProtectedRoute><LiveOrders /></ProtectedRoute>} />
+      <Route path="/finance/ledger/:role/:id" element={<ProtectedRoute><PartnerLedgerDetail /></ProtectedRoute>} />
       <Route path="/directory" element={<ProtectedRoute><Directory /></ProtectedRoute>} />
       <Route path="/promotions" element={<ProtectedRoute><Promotions /></ProtectedRoute>} />
       <Route path="/cms" element={<ProtectedRoute><CMS /></ProtectedRoute>} />

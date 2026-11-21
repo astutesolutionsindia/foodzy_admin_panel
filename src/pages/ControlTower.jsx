@@ -60,7 +60,7 @@ function ControlTowerInner() {
     fetchTower(zoneId);
     let socket = null;
     try {
-      const fn = socketModule.initSocket || socketModule.getSocket || socketModule.connectSocket || socketModule.default;
+      const fn = socketModule.initSocket || socketModule.getSocket;
       socket = typeof fn === 'function' ? fn() : fn;
     } catch (_) {
       socket = null;
