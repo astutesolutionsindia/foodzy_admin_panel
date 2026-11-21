@@ -2,7 +2,7 @@ import { useContext, useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FileCheck, Map, Users, Trophy, Star, Sparkles, UtensilsCrossed,
-  Image as ImageIcon, BadgeDollarSign, Archive, ShieldAlert, LogOut, Package, BellRing, LifeBuoy
+  Image as ImageIcon, BadgeDollarSign, Archive, ShieldAlert, LogOut, Package, BellRing, LifeBuoy, Radio
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
@@ -60,6 +60,7 @@ export default function Layout({ children }) {
     { name: 'Reviews & Ratings', path: '/reviews', icon: Star, roles: ALL_NON_FINANCE },
     { name: 'Menu & Price Control', path: '/menu-manager', icon: UtensilsCrossed, roles: ALL_NON_FINANCE, badge: pendingPriceCount },
     { name: 'KYC Desk', path: '/kyc', icon: FileCheck, roles: ALL_NON_FINANCE },
+    { name: 'Fleet Control Tower', path: '/control-tower', icon: Radio, roles: ALL_NON_FINANCE },
     { name: 'Live Orders', path: '/orders', icon: Map, roles: ALL_NON_FINANCE },
     { name: 'Directory & Edit', path: '/directory', icon: Users, roles: ALL_NON_FINANCE },
     { name: 'Packaging Store', path: '/packaging', icon: Package, roles: ALL_NON_FINANCE },

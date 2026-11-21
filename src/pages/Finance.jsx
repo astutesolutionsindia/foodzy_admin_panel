@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { initSocket } from '../config/socket';
 import {
@@ -9,6 +10,7 @@ import api from '../config/api';
 
 export default function Finance() {
   const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('SETTINGS');
   const [ledgerRoleSwitch, setLedgerRoleSwitch] = useState('RESTAURANT');
   const [payoutRoleSwitch, setPayoutRoleSwitch] = useState('RESTAURANT');
@@ -713,6 +715,9 @@ export default function Finance() {
                           {r.restaurant_name}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">{r.phone_number}</p>
+                        <p className="text-[11px] font-mono text-emerald-700 mt-1">
+                          Bank: {r.bank_account_number ? `${r.bank_account_number} (${r.bank_ifsc || 'IFSC'})` : 'Not Submitted'}
+                        </p>
                       </div>
                       <button
                         onClick={() => handleUpdateCustomCommission(r.restaurant_id, r.effective_commission_pct, r.restaurant_name)}
@@ -730,11 +735,11 @@ export default function Finance() {
                       </div>
                       <div>
                         <p className="text-gray-400">Gross Food Sales</p>
-                        <p className="font-bold text-gray-800 text-sm">₹{Math.round(r.gross_sales)}</p>
+                        <p className="font-bold text-gray-800 text-sm">₹{Number(r.gross_sales || 0).toFixed(2)}</p>
                       </div>
                       <div>
                         <p className="text-gray-400">Platform Fee Deducted</p>
-                        <p className="font-semibold text-red-600">-₹{Math.round(r.platform_commission)}</p>
+                        <p className="font-semibold text-red-600">-₹{Number(r.platform_commission || 0).toFixed(2)}</p>
                       </div>
                       <div>
                         <p className="text-gray-400">18% Fee GST + TDS</p>
@@ -745,13 +750,13 @@ export default function Finance() {
 
                   <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
                     <div>
-                      <p className="text-[11px] text-gray-400">Already Settled: ₹{Math.round(r.total_settled)}</p>
+                      <p className="text-[11px] text-gray-400">Already Settled: ₹{Number(r.total_settled || 0).toFixed(2)}</p>
                       <p className="text-sm font-black text-emerald-700 mt-0.5">
-                        Net Pending Due: ₹{Math.round(r.net_restaurant_payout)}
+                        Net Pending Due: ₹{Number(r.net_restaurant_payout || 0).toFixed(2)}
                       </p>
                     </div>
                     <button
-                      onClick={() => setSelectedPartnerDetail({ role: 'RESTAURANT', data: r })}
+                      onClick={() => navigate(`/finance/ledger/RESTAURANT/${r.restaurant_id}`)}
                       className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer"
                     >
                       Full Card Details
@@ -777,6 +782,9 @@ export default function Finance() {
                           {rd.rider_name}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">{rd.phone_number}</p>
+                        <p className="text-[11px] font-mono text-emerald-700 mt-1">
+                          Bank: {rd.bank_account_number ? `${rd.bank_account_number} (${rd.bank_ifsc || 'IFSC'})` : 'Not Submitted'}
+                        </p>
                       </div>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${rd.uniform_fee_paid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800'}`}>
                         {rd.uniform_fee_paid ? 'Onboarding Paid' : 'Onboarding Due'}
@@ -794,11 +802,11 @@ export default function Finance() {
                       </div>
                       <div>
                         <p className="text-gray-400">Lifetime Earnings</p>
-                        <p className="font-semibold text-emerald-700">₹{Math.round(rd.lifetime_earnings)}</p>
+                        <p className="font-semibold text-emerald-700">₹{Number(rd.lifetime_earnings || 0).toFixed(2)}</p>
                       </div>
                       <div>
                         <p className="text-gray-400">Total Settled</p>
-                        <p className="font-semibold text-blue-600">₹{Math.round(rd.total_settled)}</p>
+                        <p className="font-semibold text-blue-600">₹{Number(rd.total_settled || 0).toFixed(2)}</p>
                       </div>
                     </div>
                   </div>
@@ -807,11 +815,11 @@ export default function Finance() {
                     <div>
                       <p className="text-[11px] text-gray-400">Unsettled Wallet Balance</p>
                       <p className="text-sm font-black text-emerald-700">
-                        Pending Payout: ₹{Math.round(rd.total_payout_due)}
+                        Pending Payout: ₹{Number(rd.total_payout_due || 0).toFixed(2)}
                       </p>
                     </div>
                     <button
-                      onClick={() => setSelectedPartnerDetail({ role: 'RIDER', data: rd })}
+                      onClick={() => navigate(`/finance/ledger/RIDER/${rd.rider_id}`)}
                       className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer"
                     >
                       Full Card Details

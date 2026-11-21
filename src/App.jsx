@@ -18,6 +18,8 @@ import Team from './pages/Team';
 import PackagingStore from './pages/PackagingStore';
 import NotificationsPush from './pages/NotificationsPush';
 import SupportDesk from './pages/SupportDesk';
+import ControlTower from './pages/ControlTower';
+import PartnerLedgerDetail from './pages/PartnerLedgerDetail';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);

@@ -27,6 +27,8 @@ export default function MenuManager() {
     name: '',
     description: '',
     price: '',
+    has_variants: false,
+    price_half: '',
     category: 'Main Course',
     is_veg: true,
     is_available: true,
@@ -200,6 +202,8 @@ export default function MenuManager() {
       name: '',
       description: '',
       price: '',
+      has_variants: false,
+      price_half: '',
       category: selectedCategory !== 'ALL' ? selectedCategory : 'Main Course',
       is_veg: true,
       is_available: true,
@@ -226,6 +230,8 @@ export default function MenuManager() {
       name: dish.name || '',
       description: dish.description || '',
       price: dish.price ?? '',
+      has_variants: Boolean(dish.has_variants || dish.price_half),
+      price_half: dish.price_half ?? '',
       category: dish.category || 'Main Course',
       is_veg: dish.is_veg !== false,
       is_available: dish.is_available !== false,
@@ -277,6 +283,8 @@ export default function MenuManager() {
       fd.append('name', dishForm.name.trim());
       fd.append('description', dishForm.description.trim());
       fd.append('price', String(dishForm.price));
+      fd.append('has_variants', String(Boolean(dishForm.has_variants)));
+      if (dishForm.has_variants && dishForm.price_half) fd.append('price_half', String(dishForm.price_half));
       fd.append('category', dishForm.category.trim() || 'Main Course');
       fd.append('is_veg', String(dishForm.is_veg));
       fd.append('is_available', String(dishForm.is_available));
@@ -292,11 +300,11 @@ export default function MenuManager() {
       }
 
       if (editingDish) {
-        await api.put(`/admin/menu/${editingDish.id}`, fd, {
+        await api.put(`/admin/menu/v2/${editingDish.id}`, fd, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
       } else {
-        await api.post('/admin/menu', fd, {
+        await api.post('/admin/menu/v2', fd, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
       }
@@ -847,6 +855,37 @@ export default function MenuManager() {
                   placeholder="Portion size, ingredients, or preparation style..."
                   className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-sm outline-none"
                 />
+              </div>
+
+              
+              {/* Full & Half Portion Variants (Synced with Restaurant App) */}
+              <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-3">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div>
+                    <span className="text-xs font-black text-emerald-900">Enable Full & Half Portion Variants</span>
+                    <p className="text-[11px] text-emerald-700">Matches Restaurant App Full/Half pricing options</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(dishForm.has_variants)}
+                    onChange={(e) => setDishForm({ ...dishForm, has_variants: e.target.checked })}
+                    className="w-5 h-5 accent-emerald-600 cursor-pointer"
+                  />
+                </label>
+                {dishForm.has_variants && (
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-900 mb-1">Half Portion Price (₹) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required={Boolean(dishForm.has_variants)}
+                      value={dishForm.price_half}
+                      onChange={(e) => setDishForm({ ...dishForm, price_half: e.target.value })}
+                      placeholder="e.g. 140"
+                      className="w-full px-3.5 py-2 border border-emerald-300 bg-white rounded-xl text-sm font-bold outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Veg / Non-Veg + Bestseller + Availability */}
