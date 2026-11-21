@@ -4,9 +4,10 @@ import {
   ArrowRightLeft, Banknote, CheckCircle2, Battery, Clock, XCircle
 } from 'lucide-react';
 import api from '../config/api';
-import { initSocket } from '../config/socket';
+import React from 'react';
+import * as socketModule from '../config/socket';
 
-export default function ControlTower() {
+function ControlTowerInner() {
   const [zoneId, setZoneId] = useState(1);
   const [zones, setZones] = useState([]);
   const [riders, setRiders] = useState([]);
@@ -57,7 +58,14 @@ export default function ControlTower() {
 
   useEffect(() => {
     fetchTower(zoneId);
-    const socket = initSocket();
+    let socket = null;
+    try {
+      const fn = socketModule.initSocket || socketModule.getSocket || socketModule.connectSocket || socketModule.default;
+      socket = typeof fn === 'function' ? fn() : fn;
+    } catch (_) {
+      socket = null;
+    }
+    if (!socket || typeof socket.on !== 'function') return;
     if (!socket) return;
 
     const handleDelta = (delta) => {
@@ -276,7 +284,7 @@ export default function ControlTower() {
                   <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
                     ex.severity === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-amber-100 text-amber-900'
                   }`}>
-                    {ex.type.replaceAll('_', ' ')}
+                    {String(ex.type || 'ALERT').replaceAll('_', ' ')}
                   </span>
                 </div>
                 <p className="font-bold text-sm text-gray-800">{ex.title}</p>
@@ -474,7 +482,7 @@ export default function ControlTower() {
                     <div>
                       <div className="font-bold text-sm text-gray-800">{c.full_name}</div>
                       <div className="text-xs text-gray-500">
-                        {c.distance_km} km away • COD: ₹{Number(c.current_cod_balance).toFixed(2)}/{Number(c.cod_float_limit).toFixed(0)}
+                        {c.distance_km} km away • COD: ₹{Number(c.current_cod_balance || 0).toFixed(2)}/{Number(c.cod_float_limit || 3000).toFixed(0)}
                       </div>
                     </div>
                     <button
@@ -623,5 +631,41 @@ export default function ControlTower() {
         </div>
       )}
     </div>
+  );
+}
+
+
+class TowerErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+  static getDerivedStateFromError(err) {
+    return { hasError: true, message: err?.message || 'Unexpected Control Tower error' };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 bg-white rounded-2xl border border-red-200 max-w-xl mx-auto mt-10 space-y-3">
+          <h3 className="text-lg font-bold text-red-700">Control Tower Render Notice</h3>
+          <p className="text-sm text-gray-700 font-mono">{this.state.message}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold cursor-pointer"
+          >
+            Reload Control Tower
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function ControlTower() {
+  return (
+    <TowerErrorBoundary>
+      <ControlTowerInner />
+    </TowerErrorBoundary>
   );
 }
