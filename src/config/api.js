@@ -1,7 +1,7 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://foodzy-backend-dmp6.onrender.com/api',
+  baseURL: 'https://api.foodzy.in/api',
 });
 
 // Automatically inject token into every request

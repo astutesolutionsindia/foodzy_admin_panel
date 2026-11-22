@@ -1,4 +1,4 @@
-import { io } from 'socket.io-client';
+﻿import { io } from 'socket.io-client';
 
 let socket = null;
 
@@ -7,7 +7,7 @@ export const initSocket = () => {
   if (!token) return null;
 
   if (!socket) {
-    socket = io('https://foodzy-backend-dmp6.onrender.com', {
+    socket = io('https://api.foodzy.in', {
       auth: { token },
       transports: ['websocket', 'polling'],
       reconnection: true,
