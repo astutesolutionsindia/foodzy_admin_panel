@@ -98,6 +98,28 @@ export default function SupportDesk() {
     }
   };
 
+  const handleUnlockPartnerBank = async (issue) => {
+    if (!issue?.reporter_id) return alert('Missing partner ID on this ticket.');
+    try {
+      setSendingReplyId(issue.id);
+      const replyText =
+        (replyDrafts[issue.id] || '').trim() ||
+        'Bank account editing has been activated in your Restaurant Partner App. Please enter your updated bank details and save.';
+      await api.put(`/admin/restaurants/${issue.reporter_id}/bank-edit-unlock`, {
+        unlock: true,
+        issueId: issue.id,
+        resolution_note: replyText
+      });
+      window.dispatchEvent(new Event('foodzySupportIssueUpdated'));
+      fetchIssues();
+      alert('Bank update option activated for partner!');
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to unlock bank update for partner');
+    } finally {
+      setSendingReplyId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -294,6 +316,18 @@ export default function SupportDesk() {
                       <CheckCircle2 className="w-4 h-4" />
                       {sendingReplyId === iss.id ? 'Sending...' : 'Reply & Resolve'}
                     </button>
+                    {iss.reporter_role === 'RESTAURANT' &&
+                      String(iss.category || iss.subject || '').toLowerCase().includes('bank') &&
+                      iss.status !== 'RESOLVED' && (
+                        <button
+                          type="button"
+                          disabled={sendingReplyId === iss.id}
+                          onClick={() => handleUnlockPartnerBank(iss)}
+                          className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          Activate Bank Update
+                        </button>
+                      )}
                   </div>
                 )}
               </div>
